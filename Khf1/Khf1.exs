@@ -8,6 +8,7 @@ defmodule Khf1 do
   """
 
 
+
   @type ertek() :: integer() # az összeg előállítására felhasználható érték (0 < ertek)
   @type darab() :: integer() # az értékből rendelkezésre álló maximális darabszám (0 ≤ darabszám)
   @type ertekek() :: %{ertek() => darab()}
@@ -85,6 +86,8 @@ defmodule Khf1 do
     end
   end
 
+
+
   @doc """
   Korlátos (és a korlátlan esetre is alkalmas) frissítés **map-alapú** DP-hez.
   Maradékosztályonként (r = 0..ertek-1) haladunk, a sorozat: t = r, r+ertek, r+2*ertek, ...
@@ -109,6 +112,7 @@ defmodule Khf1 do
       processzal_maradekosztaly(dp_regi, dp_aktualis, ertek, limit, maradek, celertek)
     end)
   end
+
 
   @doc """
   Egy maradékosztály feldolgozása: t = maradek, maradek+ertek, ... indexekre csúszó ablakot tartunk fenn.
@@ -141,6 +145,7 @@ defmodule Khf1 do
       0
     )
   end
+
 
   @doc """
   A maradékosztály sorozatának végigjárása csúszó ablakkal.
@@ -211,6 +216,7 @@ defmodule Khf1 do
     )
   end
 
+
   @doc """
   Több pozitív egész legnagyobb közös osztója (LNKO).
   """
@@ -221,7 +227,6 @@ defmodule Khf1 do
   defp lnko_lista([x, y | tobbi]), do: lnko_lista([Integer.gcd(x, y) | tobbi])
 
 end
-
 
 
 
