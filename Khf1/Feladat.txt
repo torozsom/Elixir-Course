@@ -1,0 +1,111 @@
+Írjon olyan Elixir-függvényt hanyfele néven, amely megszámolja, hogy egy adott nemnegatív egész célértéket hányféleképpen lehet előállítani adott pozitív egész számokból, összeadással.
+
+A függvény paraméterei:
+
+Az első paraméter egy olyan Elixir-szótár (map), amely a felhasználható számértékeket és a maximális darabszámukat tartalmazza %{ertek => darabszam, ...} alakban. Ha darabszám 0, az adott értékből korlátlan mennyiség áll rendelkezésre.
+A második paraméter a célérték.
+A függvény a célérték lehetséges előállításainak számát adja eredményül. Az előállítások számlálásában nem különböztetjük meg azokat az összegkifejezéseket, amelyek csak az összeadandók sorrendjében vagy az összeadások zárójelezésében térnek el egymástól.
+
+Nagy célértékekre is működő, hatékony megoldást várunk.
+
+Megjegyzés: Az első paramétert ún. multihalmaz (másnéven bag, magyarul zsák) alakban adjuk meg. Esetünkben a zsák elemei egy szótár kulcsai, a kulcsokhoz rendelt érték pedig a számosságuk (multiciplitásuk). A klasszikus multihalmaz elemei korlátos számosságúak, az általánosított multihalmaz elemei között korlátlan számosságúak is lehetnek.
+
+Elixir-specifikációk
+
+  @type ertek() :: integer() # az összeg előállítására felhasználható érték (0 < ertek)
+  @type darab() :: integer() # az értékből rendelkezésre álló maximális darabszám (0 ≤ darabszám)
+  @type ertekek() :: %{ertek() => darab()}
+  @spec hanyfele(ertekek :: ertekek(), celertek :: integer()) :: ennyifele :: integer()
+  # ennyifele a celertek összes különböző előállításainak száma ertekek felhasználásával
+
+Egyéb követelmények
+
+A modul neve Khf1 legyen, a @moduledoc szakasz pedig legalább a szerző nevét, email-címét és a dátumot tartalmazza.
+  defmodule Khf1 do
+  @moduledoc """
+  Hányféle módon állítható elő a célérték
+  @author "Egyetemi Hallgató <egy.hallg@edu.bme.hu>"
+  @date   "2025-09-xx"
+  """
+  ...
+  end
+
+Ha segédfüggvényeket használ, legyenek lokálisak (defp), és írjon hozzájuk típusspecifikációt és fejkommentet.
+A beadott programokat Linux környezetben Elixir 1.18 (Erlang/OTP 28) rendszerrel teszteljük.
+
+Példák
+
+  iex> Khf1.hanyfele(%{1 => 2, 2 => 3, 3 => 4}, 4)
+  3
+  
+  iex> Khf1.hanyfele(%{2 => 2, 1 => 1, 3 => 3}, 4)
+  2
+  
+  iex> Khf1.hanyfele(%{3 => 1, 1 => 0, 2 => 0}, 4)
+  4
+  
+  iex> Khf1.hanyfele(%{3 => 3, 2 => 1, 1 => 1}, 5)
+  1
+  
+  iex> Khf1.hanyfele(%{1 => 0, 2 => 0, 3 => 0}, 20)
+  44
+  
+  iex> Khf1.hanyfele(%{2 => 0, 3 => 0, 1 => 0}, 3000)
+  751501
+  
+  iex> Khf1.hanyfele(%{1 => 50, 3 => 0, 2 => 0}, 3000)
+  25309
+  
+  iex> Khf1.hanyfele(%{3 => 0, 1 => 100, 2 => 0}, 499_000)
+  8399034
+  
+A fenti első példa esetén az eredmény az alábbi halmaz elemeinek a száma, azaz 3:
+{ <x,y,z> | x≥0, y≥0, z≥0, x,y,z egészek, x≤2, y≤3, z≤4, x*1+y*2+z*3 == 4 } == {1+1+2, 1+3, 2+2}
+
+Sablon a program megírásához:
+
+defmodule Khf1 do
+
+  @moduledoc """
+  Hányféle módon állítható elő a célérték
+  @author "Egyetemi Hallgató <egy.hallg@edu.bme.hu>"
+  @date   "2025-09-xx"
+  """
+  @type ertek() :: integer() # az összeg előállítására felhasználható érték (0 < ertek)
+  @type darab() :: integer() # az értékből rendelkezésre álló maximális darabszám (0 ≤ darabszám)
+  @type ertekek() :: %{ertek() => darab()}
+
+  @spec hanyfele(ertekek :: ertekek(), celertek :: integer()) :: ennyifele :: integer()
+  # ennyifele a celertek összes különböző előállításainak száma ertekek felhasználásával
+  def  hanyfele(ertekek, celertek) do
+    ...
+  end
+end
+
+Szkript tesztesetek a futtatáshoz:
+
+defmodule Khf1Testcases do
+
+  testcases = # {vals, target, count}]
+    [
+      {%{1 => 2, 3 => 3, 5 => 4},             20,       3}, #0
+      {%{2 => 2, 1 => 10, 5 => 5},            28,       6}, #1
+      {%{20 => 3, 10 => 7, 5 => 8},          110,      14}, #2
+      {%{3 => 3, 2 => 10, 1 => 10},            5,       5}, #3
+      {%{5 => 300, 2 => 100, 1 => 500},     1500,  10_121}, #4
+      {%{10 => 0, 20 => 0, 50 => 0},      25_000, 313_501}, #5
+      {%{10 => 3000, 50 => 0, 20 => 0},   30_000, 451_201}, #6
+      {%{10 => 3000, 20 => 0, 50 => 600}, 33_000, 536_761}, #7
+      {%{3 => 0, 1 => 100, 2 => 0},       49_000, 824_034}, #8
+      {%{3 => 30000, 1 => 2, 2 => 1},    300_005,       0}, #9
+    ]
+  
+  for {i, {vals, target, count}} <- Enum.zip(0..length(testcases)-1, testcases), res = Khf1.hanyfele(vals, target) do
+    {"Teszteset #{i}", res == count}
+    |> IO.inspect(label: "Várt eredmény " <> (res |> Integer.to_string() |> String.pad_leading(7, " ")))
+  end
+
+end
+
+
+  
