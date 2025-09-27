@@ -15,20 +15,16 @@ defmodule Khf1 do
 
 
 
-  @doc """
-  Visszaadja, hány **különböző módon** állítható elő a `celertek` a megadott multihalmazból.
-  A darab=0 azt jelenti, hogy az adott értékből **korlátlan** mennyiség használható.
-  Az összeadandók sorrendje és a zárójelezés nem számít (kombinációk).
-  """
+  @doc "Visszaadja, hány különböző módon állítható elő a célérték a megadott multihalmazból."
   @spec hanyfele(ertekek :: ertekek(), celertek :: integer()) :: integer()
   # Negatív célérték: nincs megoldás.
   def hanyfele(_ertekek, celertek) when celertek < 0, do: 0
   # Nulla célérték: az üres összeadás az egyetlen megoldás.
   def hanyfele(_ertekek, 0), do: 1
 
-  # Fő ág: ellenőrzés, normalizálás, GCD-pruning, rendezés, majd DP (map alapú).
+  # Fő ág
   def hanyfele(ertekek, celertek) when is_map(ertekek) and is_integer(celertek) do
-    # Csak releváns (pozitív és beférő) értékek megtartása.
+    # Csak releváns értékek megtartása.
     parok =
       ertekek
       |> Enum.filter(fn {ertek, darab} ->
@@ -40,14 +36,14 @@ defmodule Khf1 do
     if parok == [] do
       0
     else
-      # GCD-pruning: ha a cél nem osztható az összes érték LNKO-jával, nincs megoldás.
+      # Ha a cél nem osztható az összes érték LNKO-jával, nincs megoldás.
       ertek_lista = Enum.map(parok, &elem(&1, 0))
       lnko = lnko_lista(ertek_lista)
 
       if rem(celertek, lnko) != 0 do
         0
       else
-        # Skálázás LNKO-val (gyorsítás).
+        # Skálázás LNKO-val.
         {parok, celertek} =
           if lnko > 1 do
             {Enum.map(parok, fn {e, d} -> {div(e, lnko), d} end), div(celertek, lnko)}
@@ -55,7 +51,7 @@ defmodule Khf1 do
             {parok, celertek}
           end
 
-        # Rendezzük érték szerint (kombinációk helyes számlálása).
+        # Rendezzük érték szerint.
         parok = Enum.sort_by(parok, &elem(&1, 0))
 
         # DP kezdőállapot: csak dp[0] = 1, minden más 0 (nincs kulcs → 0).
@@ -76,7 +72,7 @@ defmodule Khf1 do
                   min(darab, div(celertek, ertek))
                 end
 
-              korlatos_csuszoablak_frissites_map(dp_regi, ertek, eff_limit, celertek)
+              korlatos_csuszoablak_frissites(dp_regi, ertek, eff_limit, celertek)
             end
           end)
 
@@ -89,27 +85,27 @@ defmodule Khf1 do
 
 
   @doc """
-  Korlátos (és a korlátlan esetre is alkalmas) frissítés **map-alapú** DP-hez.
+  Korlátos (és a korlátlan esetre is alkalmas) frissítés DP-hez.
   Maradékosztályonként (r = 0..ertek-1) haladunk, a sorozat: t = r, r+ertek, r+2*ertek, ...
   Minden ilyen sorozatra csúszó ablakos összegzést (ablakméret = limit + 1) végzünk:
     new[t] = Σ_{k=0..min(limit, floor(t/ertek))} old[t - k*ertek]
   """
-  @spec korlatos_csuszoablak_frissites_map(
+  @spec korlatos_csuszoablak_frissites(
           %{non_neg_integer() => non_neg_integer()},
           pos_integer(),
           non_neg_integer(),
           non_neg_integer()
         ) :: %{non_neg_integer() => non_neg_integer()}
   # Ha a limit 0 (nem használható az érték), akkor az új dp azonos a régivel.
-  defp korlatos_csuszoablak_frissites_map(dp_regi, _ertek, 0, _celertek), do: dp_regi
+  defp korlatos_csuszoablak_frissites(dp_regi, _ertek, 0, _celertek), do: dp_regi
 
   # Általános eset: residue-okon végigmegyünk és építjük az új dp-t.
-  defp korlatos_csuszoablak_frissites_map(dp_regi, ertek, limit, celertek) do
+  defp korlatos_csuszoablak_frissites(dp_regi, ertek, limit, celertek) do
     # Kezdünk a régi dp másolatával; fokozatosan írjuk bele az új eredményeket.
     # (Funkcionális, per-lépés új map jön létre, de csak a szükséges kulcsokra.)
     Enum.reduce(0..min(ertek - 1, celertek), dp_regi, fn maradek, dp_aktualis ->
       # Végigszkenneljük az adott maradékosztály indexeit és építjük az új dp-t.
-      processzal_maradekosztaly(dp_regi, dp_aktualis, ertek, limit, maradek, celertek)
+      scan_maradekosztaly(dp_regi, dp_aktualis, ertek, limit, maradek, celertek)
     end)
   end
 
@@ -118,7 +114,7 @@ defmodule Khf1 do
   Egy maradékosztály feldolgozása: t = maradek, maradek+ertek, ... indexekre csúszó ablakot tartunk fenn.
   `dp_regi`-ből olvasunk, `dp_aktualis`-ba írunk.
   """
-  @spec processzal_maradekosztaly(
+  @spec scan_maradekosztaly(
           %{non_neg_integer() => non_neg_integer()},
           %{non_neg_integer() => non_neg_integer()},
           pos_integer(),
@@ -127,12 +123,12 @@ defmodule Khf1 do
           non_neg_integer()
         ) :: %{non_neg_integer() => non_neg_integer()}
   # Ha a maradék nagyobb a célnál, nincs t ennél a maradéknál.
-  defp processzal_maradekosztaly(_dp_regi, dp_aktualis, _ertek, _limit, maradek, celertek)
+  defp scan_maradekosztaly(_dp_regi, dp_aktualis, _ertek, _limit, maradek, celertek)
        when maradek > celertek,
        do: dp_aktualis
 
   # Indítás: első index ezen a sorozaton a maradek, kezdeti ablakösszeg = 0, lépésszámláló = 0.
-  defp processzal_maradekosztaly(dp_regi, dp_aktualis, ertek, limit, maradek, celertek) do
+  defp scan_maradekosztaly(dp_regi, dp_aktualis, ertek, limit, maradek, celertek) do
     bejar_maradek_sorozat(
       dp_regi,
       dp_aktualis,
