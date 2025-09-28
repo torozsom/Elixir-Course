@@ -29,7 +29,7 @@ Optimalizációk:
 
 1) LNKO-szűkítés: ha az összes érték legnagyobb közös osztója (LNKO) nem osztja a célt, nincs megoldás; ha osztja, minden értéket és a célt elosztjuk az LNKO-val. Ez csökkenti T-t, így gyorsít.
 
-2) Csúszóablak a maradékosztályokon: az $\text{dp\_new}[t]$ összege egy v-hosszú ritka sorozaton futó, fix méretű mozgó összeg, ahol az ablakméret $\text{limit}+1$. Így az egyenkénti O(limit) összegzés helyett O(1) frissítéssel lépünk t→t+v.
+2) Csúszóablak a maradékosztályokon: az $\mathrm{dp\_new}[t]$ összege egy v-hosszú ritka sorozaton futó, fix méretű mozgó összeg, ahol az ablakméret $\text{limit}+1$. Így az egyenkénti O(limit) összegzés helyett O(1) frissítéssel lépünk t→t+v.
 
 ---
 
