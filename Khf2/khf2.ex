@@ -68,10 +68,14 @@ defmodule Khf2 do
 
 
   # Spirális koordinátalista generálása n×n-es táblára
-  @spec generate_spiral_coords(size()) :: [field()]
+  @spec generate_spiral_coords(size :: size()) :: result :: [field()]
   defp generate_spiral_coords(size), do: generate_spiral_coords(1, 1, size, size, [])
 
-  @spec generate_spiral_coords(integer(), integer(), integer(), integer(), [field()]) :: [field()]
+  @spec generate_spiral_coords(left :: integer(),
+                               top :: integer(),
+                               right :: integer(),
+                               bottom :: integer(),
+                               acc :: [field()]) :: result :: [field()]
 
   # Ha a bal szélső oszlop nagyobb, mint a jobb; vagy a felső sor nagyobb, mint az alsó, akkor vége
   defp generate_spiral_coords(left, top, right, bottom, acc)
@@ -100,7 +104,7 @@ defmodule Khf2 do
 
 
   # A spirális koordinátalistához hozzárendeljük a kitöltött értékeket vagy nil-t
-  @spec assign_values_to_coords([field()], map()) :: [field_opt_value()]
+  @spec assign_values_to_coords(spiral_fields :: [field()], filled_fields_map :: map()) :: result :: [field_opt_value()]
   defp assign_values_to_coords(spiral_fields, filled_fields_map) do
     Enum.map(
       spiral_fields,
