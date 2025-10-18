@@ -1,187 +1,179 @@
-Számtekercs – megoldói dokumentáció (Nhf1)
+Nhf1 — Helix (Számtekercs) megoldó dokumentáció
 
-Ez a dokumentum a `Nhf1/nhf1.ex` jelenlegi megoldását írja le: hogyan bontottuk fel a feladatot (feladat.txt), miért helyes az így kialakított megközelítés, milyen adatszerkezeteket és algoritmusokat használunk, hogyan működik minden segédfüggvény, és végül milyen optimalizációk vezethetnek gyorsabb futáshoz.
+Ez a README összefoglalja a `feladat.txt`-ben leírt problémát, bemutatja, hogyan bontja le a `nhf1.ex` kisebb, kezelhető feladatokra, miért adnak ezek együtt helyes és teljes megoldást, és milyen implementációs döntések (algoritmusok, adatszerkezetek) állnak mögötte. Tartalmaz futtatási és mérési útmutatót, valamint javasolt további optimalizációkat is.
 
-## probléma összefoglaló
+## Problémaösszefoglaló (feladat.txt alapján)
 
-Adott egy n×n tábla és egy 1..m értékkészlet. Olyan táblákat keresünk, ahol:
-- minden sorban és minden oszlopban az 1..m számok mindegyike pontosan egyszer szerepel (a többi cella 0),
-- a bal felső sarokból induló spirális bejárás mentén a nem-0 számok rendre 1,2,..,m,1,2,..,m,… ciklust követnek.
-Előre adott megszorítások: néhány cella 1..m közötti értéke rögzített.
+Adott egy n×n-es négyzetes tábla. Néhány mezőben már 1 és m közötti szám van, a többi üres (kimenetben 0). Úgy kell további 1..m számokat elhelyezni, hogy az alábbiak teljesüljenek:
 
-Kimenet: az összes ilyen tábla listája.
+- Sor/oszlop latin feltétel: minden sorban és minden oszlopban az 1..m számok mindegyike pontosan egyszer szerepel; a fennmaradó mezők 0-k.
+- Helix (spirál) sorrend: ha a táblát a bal felső sarokból induló, a külső „keretet” körbejáró, majd befelé rekurzáló spirál mentén járjuk be, akkor a nem-0 értékek sorban az 1,2,…,m,1,2,…,m,… ciklust követik.
 
-## bontás kisebb feladatokra és indoklás
+A `helix/1` bemenete `{n, m, constraints}`, ahol `constraints :: [{{r,c}, v}]` rögzített, 1-alapú koordinátákon ír elő konkrét `v ∈ 1..m` értéket.
+
+A kimenet a lehetséges táblák listája (tetszőleges sorrendben). Minden tábla `n×n` egész szám lista-lista, ahol a 0 üres mezőt, az 1..m pedig elhelyezett értéket jelent.
+
+Típusok (a kódban is):
+
+- `@type size() :: integer()`  — tábla méret n, n > 0
+- `@type cycle() :: integer()` — ciklushossz m, 0 < m ≤ n
+- `@type value() :: integer()` — cellaérték 1..m
+- `@type field() :: {row(), col()}` 1..n tartományú sor/oszlop indexekkel
+- `@type puzzle_desc() :: {size(), cycle(), [field_value()]}`
+- `@type solution() :: [[integer()]]`
+
+Specifikáció:
+
+`@spec helix(sd :: puzzle_desc()) :: solutions()`
+
+Példa (feladat.txt):
+
+`{6, 3, [{{1,5},2}, {{2,2},1}, {{4,6},1}]}` egy (egyetlen) megoldással rendelkezik; a solver ezt a táblát adja vissza 0-kkal az üres mezőkön.
+
+## A megoldás felbontása (nhf1.ex)
+
+A globális feltételeket egy rögzített spirál sorrend mentén lokális lépésekre fordítjuk, és erős metszésekkel (pruning) támogatott visszalépéses keresést (DFS) futtatunk. Fő részek:
 
 1) Spirális bejárás előállítása
-- A spirál determinisztikus: külső peremet járjuk be (felső sor, jobb oszlop, alsó sor, bal oszlop), majd a belső (n-2)×(n-2) négyzetre rekurzálunk.
-- A spirál indexe (0..n^2-1) meghatározza, hogy hány nem-0 értéket helyeztünk el addig (s), így a következő elhelyezhető érték determinisztikus: next_value = (s mod m) + 1.
-- Ezzel a globális spirál feltételt lokálisan, lépésről lépésre tartatjuk be.
+- `build_spiral_positions/1` és `build_spiral_layers/5` a teljes koordinátasorrendet generálja a külső peremtől befelé, duplikáció nélkül. Ez 0..(n^2−1) lineáris indexet indukál.
 
-2) Megszorítások kezelése
-- A megadott `fixed_cells` listát a spirál indextere képezzük le (pozíció→index), így az adott indexhez gyorsan ellenőrizhető a kényszerérték.
-- A kényszer csak akkor helyezhető, ha a spirál fázisban éppen az a `next_value` következne; különben az adott elágazás elvetendő. Ha nincs kényszer, szabadon dönthetünk place/skip között.
+2) Megszorítások (kényszerek) indexre vetítése
+- A bemeneti `{{r,c}, v}` kényszereket „spirálindex → fix érték” formára képezzük le.
+- A `build_constraint_arrays/2` három tömböt készít a hot path-hoz:
+  - `forced_values_t`: indexenként 0 (nincs kényszer) vagy v ∈ 1..m;
+  - `forced_prefix_counts`: prefix-összegek, hány kényszer esik az i előtti indexekre (lookahead határokhoz);
+  - `next_forced_index_t`: a következő (≥ i) kényszer indexe vagy −1.
+- A `validate_constraints/3` defenzív input-ellenőrzést végez.
 
-3) Sor/oszlop egyediség és kvóták
-- Soronként és oszloponként m darab nem-0 értéknek kell állnia, és mindegyik 1..m érték egyszer fordulhat elő.
-- Ezt bitmaszkokkal (1..m bitek) és számlálókkal (hány nem-0/tengely) valósítjuk meg, így O(1) az ellenőrzés és a frissítés.
+3) Sor/oszlop egyediség és kvóta bitmaszkokkal
+- Minden sorhoz és oszlophoz tartunk egy „használt értékek” bitmaszkot és egy számlálót a nem-0 darabokra.
+- A `value_mask_t` előre tartalmazza a 0 és 1..m maszkjait.
+- A `can_place_mask?/8` O(1)-ben dönti el, hogy (row, col) pozícióba lerakható-e az adott érték: a megfelelő bitnek szabadnak kell lennie mindkét maszkban, és a sor/oszlop számlálója < m kell legyen.
+- Az `apply_value_mask/3` állítja be a biteket, a `counts_meet_quota?/2` pedig ellenőrzi levélszinten, hogy minden sor/oszlop pontosan m nem-0-t kapott.
 
-4) Visszalépéses keresés (DFS)
-- A spirál indexeit balról jobbra növeljük. Minden indexcella esetén két ág: helyezés (ha lehet) vagy kihagyás (ha nincs kényszer).
-- A levélnél (idx == n^2) csak akkor elfogadott a tábla, ha globálisan n*m nem-0-t tettünk (minden sor/oszlop m-et tartalmaz).
-- Ezzel garantáltan minden érvényes tábla előáll, a lokális szabályok pedig erősen szűkítik a keresési teret.
-- A keresés elején globális kapacitás-ellenőrzést végzünk: ha a hátralévő spirálpozíciók száma kisebb, mint a még hátralévő nem-0 értékek száma (n*m - placed), az ágat azonnal lezárjuk.
+4) Suffix kapacitások előszámítása a metszéshez
+- A `compute_suffix_capacities/2` előállítja, hogy az index i-től a végéig még hány spirálpozíció jut egyes sorokra/oszlopokra. Keresés közben a `has_sufficient_line_capacity?/9` gyorsan kizárja azokat az ágakat, ahol valamelyik sor/oszlop már nem érheti el az m darab nem-0 kvótát.
 
-Miért helyes? A spirál és a next_value összeköti a globális ciklust a lokális lépéssel; a sor/oszlop maszk+kvóta pedig biztosítja az egyediség/kvóta feltételt. A két feltétel együtt pontosan a kiírt problémát kényszeríti ki.
+5) Spirálfázis és keresés
+- A lépés `idx`-nél az eddig lerakott nem-0 darab `placed_count`. A következő elvárt helix-érték lokálisan adódik: `next_value = (placed_count mod m) + 1`.
+- A `dfs_spiral_search/…` a backtracking magja. Minden spirálpozíciónál:
+  - Ha itt kényszer van, az csak akkor maradhat, ha megegyezik a `next_value`-val és átmegy a sor/oszlop ellenőrzésen; különben metszés.
+  - Ha nincs kényszer, két ág lehetséges:
+    - PLACE: lerakjuk a `next_value`-t, ha engedett;
+    - SKIP: üresen hagyjuk (0) — de csak ha ez a közeli kényszerekig megtartható helix-illeszthetőséget eredményez.
+- Globális kapacitásmetszés: ha a hátralévő pozíciók száma < a hátralévő nem-0 helyezések száma, az ágat lezárjuk.
+- Igazítás (alignment) lookahead: az `alignment_window_allows?/8` csak akkor hívja az `alignment_feasible?/6`-ot, ha a következő kényszer indexe egy konfigurálható ablakon belül van. Ez megakadályozza, hogy SKIP döntések később biztos lehetetlenséget okozzanak.
 
-## adatszerkezetek és miért ezeket használjuk
+6) Megoldás összeállítása
+- Ha minden kényszer teljesült és összesen `n*m` nem-0-t helyeztünk el (azaz soronként és oszloponként m-et), az `assemble_board_from_map/2` egyetlen táblává építi az állapotot; a többi helyen 0 marad.
 
-- spiral_positions :: [{row, col}] – a spirál sorrendje. Könnyű róla indexelni és a pozíciókat az indexhez rendelni.
-- spiral_positions_t :: tuple – gyors elem/2 hozzáférés a DFS-ben.
-- spiral_row_index_t, spiral_col_index_t :: tuple(int) – az adott spirálindex sor/oszlop indexe (0-alapú), hot path mikro-optimalizáció.
-- index_by_position :: %{ {r,c} => i } – kényszerek gyors illesztéséhez.
-- forced_values_by_index :: %{ i => v } – a DFS lépésnél O(1) nézet.
-- value_mask_t :: tuple(int) – előre számolt bitmaszkok az 1..m értékekhez (0-indexben a 0 maszk).
-- row_used_value_masks_t, col_used_value_masks_t :: tuple(int) – m-bites maszkok, jelzik, mely értékeket használtuk már soronként/oszloponként.
-- row_placed_count_t, col_placed_count_t :: tuple(int) – a „kvóta” (m) betartására szolgáló számlálók.
-- compute_suffix_capacities eredménye (row_suffix_capacity_t, col_suffix_capacity_t) :: tuple(tuple) – kapacitás-pruninghoz (aktívan használjuk).
-- build_constraint_arrays eredménye: forced_values_t, forced_prefix_counts, next_forced_index_t – kényszerek gyors és olcsó elérése/lookahead.
+## Miért adnak ezek együtt helyes megoldást?
 
-Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatják a backtrackinget.
+- Helyesség (nincsenek hamis pozitívok)
+  - A spirál szabályt inkrementálisan tartatjuk be: az elhelyezett k-adik nem-0 értéknek `((k mod m) + 1)`-nek kell lennie, így a fix spirál mentén a nem-0 szekvencia pontosan az 1..m ciklust adja.
+  - A sor/oszlop latin szabályt lokálisan ellenőrizzük bitmaszkokkal és számlálókkal, így duplikáció nem keletkezik, és a kvóta m teljesül.
+  - A kényszerek pontos indexeiken egyezniük kell a helix fázissal; az ellentmondó ágak azonnal kizáródnak.
+  - A metszések csak olyan ágakat vágnak le, amelyek biztosan nem képesek teljesíteni a kvótákat vagy az igazítást — érvényes megoldást nem veszítünk el miattuk.
 
-## függvények és szerepük
+- Teljesség (nincsenek hamis negatívok)
+  - A DFS bejár minden, a kényszerekkel konzisztens SKIP/PLACE kombinációt. Minden érvényes tábla megfeleltethető egy útnak, ahol a szükséges helyezéseket megtesszük, minden más pozíciót kihagyunk. A spirál teljes rendezést ad, ezért a keresés minden megoldást elér.
 
-- helix/1
-  - Belépési pont. Ellenőrzi az inputot, előállítja a spirált és a kényszereket indexre képezi, inicializálja a maszkokat/számlálókat és a suffix statisztikát. Meghívja a visszalépéses keresést; a megoldásokat közvetlenül a levélszinten építi fel (nincs utólagos uniq/validálás).
+- Termináció
+  - A keresési tér véges (n^2 index, bináris döntések, kényszerekkel), így a futás befejeződik. A metszések csak gyorsítanak, de a helyességhez nem szükségesek.
 
-- build_spiral_positions/1 és build_spiral_layers/5
-  - Előállítja a teljes spirál koordinátalistát. Rétegenként halad, duplikációk nélkül (a szélekhez feltételeket használ).
+## Implementációs döntések és trade-offok
 
-- compute_suffix_capacities/2
-  - Suffix statisztika: a „következő indextől a végéig” tartományban hány pozíció esik egy adott sorra/oszlopra. A jelenlegi megoldás ezt aktívan használja kapacitás-pruninghoz.
+- Fix bejárás és lokális fázisszabály
+  - A globális helix feltételt lokális szabállyá alakítjuk: `next_value = (placed_count mod m) + 1`. Nem kell a teljes prefixet cipelni; a fázist a `placed_count` hordozza.
 
-- dfs_spiral_search/…
-  - A magkereső, akkumulátoros stílusban. Rész-állapota tartalmazza a „placements” listát (spirálindex, érték párok) és egy eredmény-akkumulátort.
-  - Extra paraméterek: `value_mask_t`, valamint a kényszerek tömbjei (`forced_values_t`, `forced_prefix_counts`, `next_forced_index_t`).
-  - Minden lépésben kiszámítja a `next_value = (placed_count mod m) + 1` értéket, és két ágat vizsgál:
-    - PLACE: ha nincs kényszer, vagy a kényszer értéke megegyezik a next_value-val, és a sor/oszlop maszk+kvóta engedi → frissít, rekurzál.
-    - SKIP: csak ha nincs kényszer → 0-ként továbblép változatlan maszkokkal/számlálókkal.
-  - Pruningok:
-    - Globális kapacitás: ha a hátralévő spirálpozíciók száma < a hátralévő nem-0 értékek száma (n*m - placed), az ágat lezárjuk.
-    - Lokális (suffix) kapacitás: a következő indextől mért sor/oszlop-kapacitás elegendő-e a kvótához; ha nem, az ágat lezárjuk.
-    - Kényszer-igazítás (window-olt lookahead): csak a SKIP ágon és csak akkor fut, ha a következő kényszer indexe @alignment_window távolságon belül van; ha a moduló fázis nem illeszthető, az ágat lezárjuk.
-  - Báziseset: ha `placed_count == n*m` és minden sor/oszlop nem-0 darabszáma m, a „placements”-ből egyszeri allokációval táblát építünk, és az eredményhez adjuk.
+- Tuple-ök a hot path-on listák helyett
+  - Sok tömb-szerű adatot tuple-ben tárolunk (`spiral_positions_t`, sor/oszlop indexek, maszkok, suffix kapacitások, kényszerek), mert az `elem/2` és `put_elem/3` gyors véletlen hozzáférést és kisméretű frissítést tesz lehetővé backtracking közben.
 
-- can_place_mask?/8
-  - O(1)-ben eldönti, hogy egy érték elhelyezhető-e egy cellába a sor/oszlop maszkok és számlálók alapján. A függvény maszkot (bitset) kap a konkrét érték helyett.
+- Bitmaszkok az egyediséghez
+  - Értékenként (1..m) egy bitet használunk, így O(1) az ellenőrzés/frissítés. A `Bitwise` import csökkenti az overheadet.
 
-- apply_value_mask/3
-  - Beállítja a megfelelő bitet a sor/oszlop maszkban (precomputált értékmaszkkal).
+- Suffix kapacitások mint „jóslók”
+  - Előre kiszámítjuk soronként/oszloponként a hátralévő helyek számát; ez olcsó, de erős metszést ad, ha egy vonal biztosan nem érheti el az m kvótát.
 
-- counts_meet_quota?/2
-  - Igaz, ha minden érintett számláló elérte az m-et.
+- Kényszertömbök és ablakolt igazítás
+  - A `forced_values_t`, `forced_prefix_counts`, `next_forced_index_t` mikrolookaheadot tesz lehetővé. Az igazítás ellenőrzését egy konfigurálható ablak (module attribútum: `@alignment_window`, alapértelmezés 256) korlátozza a per-lépés költség miatt; futásidőben felülbírálható `HELIX_ALIGN_WIN` környezeti változóval.
 
-- assemble_board_from_map/2
-  - A kiválasztott (nem-0) hozzárendelésekből táblát épít, a hiányzó helyeket 0-val tölti.
+- Egyszerű tábla-reprezentáció
+  - A táblát csak levélszinten állítjuk össze egy tömör hozzárendelés-mapból; ez csökkenti az allokációt és a másolást a keresés során.
 
-  (Megszűnt) valid_solution_board?/4
-  - A korábbi defenzív ellenőrzőt eltávolítottuk; a keresés konstrukciósan csak érvényes táblákat ad vissza.
- 
-- has_sufficient_line_capacity?/9
-  - A következő index utáni suffix tartományt vizsgálja: az érintett sorban/oszlopban maradt cellák száma elegendő-e a még hiányzó nem-0 értékekhez (m - current_count). Ha bármelyik tengelyen kevés a hely, az ágat lezárjuk.
+## Futtatás és benchmark
 
-- build_value_mask_table/1
-  - Precomputált maszkok 1..m értékekhez (0. index: 0 maszk) a gyors bitműveletekhez.
-
-- build_constraint_arrays/2
-  - A kényszereket tömbökké alakítja: `forced_values_t` (érték vagy 0), `forced_prefix_counts` (prefix kényszerszám), `next_forced_index_t` (következő kényszer indexe vagy -1).
-
-- alignment_feasible?/6 és alignment_window_allows?/8
-  - Előbbi moduló-illeszthetőséget dönt el a következő kényszer indexéig a min/max helyezésszám tartományában; utóbbi csak akkor hívja, ha a kényszer a @alignment_window ablakban van.
-
-## miért működik ez a megközelítés?
-
-- A spirál index→next_value leképezése lokálissá teszi a globális ciklust.
-- A sor/oszlop maszk+kvóta lokálisan is elég erős megszorítás, így a keresés korán elvágja a nem ígéretes ágakat.
-- A kényszerértékek indexbe rendezése O(1) döntést tesz lehetővé minden lépésben.
-
-## teljesítmény (Benchee) és eddigi optimalizációk
-
-Mérés: a repo-ban található `Nhf1/bench.exs` Benchee-szkripttel mértük a `Nhf1.helix/1` futási idejét és memóriahasználatát a mellékelt 0–11 teszteseteken.
-
-Válogatott eredmények (átlag, hozzávetőlegesen):
-- 8×8, m=4 (tc10): ~0.94 s; ~401 MB.
-- 9×9, m=3 (tc11): ~0.17 s; ~59 MB.
-- 8×8, m=3 (tc9): ~0.056 s; ~23 MB.
-- 6×6, m=3 (tc5): ~1.0–1.1 ms; ~0.38 MB.
-
-A fenti számokat az alábbiak adják:
-- Duplikációmentes spirálgenerálás (élszűrők az egysoros/egyoszlopos rétegekre).
-- Akkumulátoros DFS: a táblák csak levélszinten épülnek.
-- Bitmaszkos sor/oszlop-ellenőrzés és kvótaszámlálás (O(1)).
-- Többlépcsős pruning: globális kapacitás + suffix-alapú sor/oszlop kapacitás + window-olt kényszer-igazítás (SKIP-ágon).
-
-Megjegyzés: a kényszer-igazítás ablakmérete a kódban @alignment_window (alapértelmezés: 64). Futásidőben a HELIX_ALIGN_WIN környezeti változóval felülbírálható (pl. 0 = kikapcsolás). Nagyobb ablak többet tud metszeni, de növelheti a per-lépés overheadet; kisebb ablak gyorsabb, de kevesebbet vág.
-
-## optimalizációs terv (további gyorsítások)
-
-Az alap megoldás helyes és a fenti két pruning már aktív. További, még nem implementált ötletek:
-
-1) Kényszer-igazítás (alignment) lookahead
- - A következő kényszerindex(ek)ig nézzük meg, hogy skip-ekkel eltolható-e úgy a fázis, hogy a kényszer értéke pont a megfelelő `next_value`-ra essen. Ha lehetetlen, zárjuk az ágat.
-
-2) Branch-heurisztika
-- A spirál fix, de a SKIP/PLACE döntésnél előnyben részesíthetjük a PLACE ágat olyan celláknál, ahol a sor/oszlop kvóta már magasabb (kevesebb mozgástér), így hamarabb futunk zsákutcába, és gyorsabb a visszalépés.
-
-3) Bitmaszk optimalizációk
-- Előszámolt maszkok (például `mask_for_value[v] = 1 <<< (v-1)`) csökkenthetik a műveletek számát.
-- A tuple helyett (speciális esetben) Erlang bitset-ek vagy kis-int optimalizációk kipróbálhatók, bár a tuple + elem/put_elem már gyors.
-
-4) Memoizáció (óvatosan)
-- Állapotrész-hash: (idx, row_value_masks[row_idx0], col_value_masks[col_idx0], placed_count) formában;
-- csak akkor éri meg, ha sok az azonos részállapot; különben a hash kezelése többe kerülhet.
-
-5) Early goal pruning
-- Amint valamelyik sor/oszlop eléri az m kvótát, ha az adott tengelyen maradt hely még tartalmaz kényszerellentmondást (például ugyanott későbbi kényszer van más értékre), az ágat lezárhatjuk.
-
-6) Részleges validáció
-- Időnként ellenőrizzük a spirál nem-0 szekvencia fázisát a közeljövőbeli kényszerekkel (pár lépésre előre), és zárjuk le a biztosan érvénytelen ágakat.
-
-7) Párhuzamosítás
-- A backtracking felső néhány szintjén a külön ágak függetlenül futtathatók; Elixir Task/Flow-vel korlátozott szinten párhuzamosítható.
-
-8) Mikro-optimalizációk
-- Maszkok előkészítése tömbbe (`mask_for_value[v] = 1 <<< (v-1)`).
-- Inline frissítések, ideiglenes változók minimalizálása a hot path-on.
-- PLACE ág preferálása „szűk” suffix-kapacitásnál a gyorsabb zsákutcákért.
-
-## futtatás
-
-Nyissa meg a `Nhf1/nhf1.ex` fájlt és futtassa a workspace gyökérből:
+A workspace gyökeréből vagy a `Nhf1` mappából futtatható. A solver fájl a `nhf1.ex`-ben levő teszteseteket is kiírja.
 
 ```pwsh
 elixir Nhf1/nhf1.ex
 ```
 
-Ez kiírja az összehasonlító tesztesetek eredményeit (true/false párok). A jelenlegi megoldás a mellékelt 0–11-es teszteseteket teljesíti.
-
-Benchee benchmark futtatása:
+Benchee benchmark a mellékelt szkripttel:
 
 ```pwsh
 elixir Nhf1/bench.exs
 ```
 
-Csak bizonyos bemenetek szűrése (környezeti változóval):
+Bementek szűrése `BENCH_FILTER` környezeti változóval (regex vagy részsztring):
 
 ```pwsh
-# csak tc10 és tc11
-$env:BENCH_FILTER = "tc1[01]"; elixir Nhf1/bench.exs
-
-# csak 8x8-as esetek
-$env:BENCH_FILTER = "8x8"; elixir Nhf1/bench.exs
+$env:BENCH_FILTER = "tc1[01]"; elixir Nhf1/bench.exs   # csak tc10 és tc11
+$env:BENCH_FILTER = "8x8";      elixir Nhf1/bench.exs   # csak 8×8-as esetek
 ```
 
-## zárszó
+Tipp: az igazítás lookahead ablak hangolása (0 letiltja):
 
-A megoldás egyszerű, de erős lokális szabályokra épít (spirálfázis + sor/oszlop egyediség + kvóta). Ez jó alap a későbbi, célzott pruningokhoz, amelyekkel még nagyobb táblákra is gyors maradhat a keresés.
+```pwsh
+$env:HELIX_ALIGN_WIN = "0";    elixir Nhf1/bench.exs
+$env:HELIX_ALIGN_WIN = "256";  elixir Nhf1/bench.exs
+```
+
+## Teljesítmény-pillanatkép (példamérések)
+
+A `Nhf1/bench.exs`-szel, a mellékelt teszteseteken mértük:
+
+- 8×8, m=4 (tc10): ~0,94 s; ~401 MB
+- 9×9, m=3 (tc11): ~0,17 s; ~59 MB
+- 8×8, m=3 (tc9): ~0,056 s; ~23 MB
+- 6×6, m=3 (tc5): ~1,0–1,1 ms; ~0,38 MB
+
+Eredetük:
+
+- Duplikációmentes spirálgenerálás (egy sor/oszlopos rétegek körültekintő kezelése)
+- Akkumulátoros DFS; a táblák csak levélszinten materializálódnak
+- Bitmaszk alapú sor/oszlop ellenőrzés és kvóták (O(1))
+- Többlépcsős metszés: globális kapacitás + suffix kapacitások + ablakolt igazítás a SKIP ágon
+
+## További optimalizációs ötletek
+
+Az alap metszések implementálva vannak. Lehetséges fejlesztések:
+
+1) Erősebb alignment lookahead
+   - Több közeljövőbeli kényszerre kiterjeszteni a vizsgálatot (pl. k darab következő fix index), vagy szigorúbb kongruencia-korlátokat fenntartani a `placed_count`-ra kényszerek között.
+
+2) Ágképzési heurisztikák
+   - Preferálni a PLACE ágat, ha egy sor/oszlop közel jár a kvótához vagy ha a suffix kapacitás „szűk”, így gyorsabban érünk zsákutcába és hamarabb vágunk.
+
+3) Adatszerkezet finomhangolás
+   - Speciális bitkészletek/primitívek kipróbálása; ahol dominál a véletlen hozzáférés, maradjanak a tuple-ök.
+
+4) Könnyűsúlyú memoizáció
+   - Csak kompakt állapotprojekciókat érdemes cache-elni, pl. `(idx, row_mask[row], col_mask[col], placed_count)`, és csak akkor, ha az ütközés/overhead vállalható.
+
+5) Koraibb konfliktusdetektálás
+   - Ha egy sor/oszlop elérte az m kvótát, gyorsan ellenőrizni, hogy nem maradt-e ugyanazon a vonalon ellentétes kényszer; ha igen, azonnal metszünk.
+
+6) Párhuzamosítás
+   - A DFS fa felső szintjeinek szétosztása független feladatokra (`Task.async_stream`) korlátozott konkurenciával.
+
+7) Mikro-optimalizációk
+   - Hot path maszkok inline-olása; ideiglenes allokációk csökkentése; gyakori tuple-ök lokális változóban tartása; SKIP ágon a tuple-módosítások minimalizálása.
+
+## Megjegyzések
+
+- A kód a `Nhf1/nhf1.ex` fájlban, a benchmark a `Nhf1/bench.exs`-ben van; a feladatleírás a `Nhf1/feladat.txt`.
+- Az `@alignment_window` modul-attribútum alapértelmezése 256; futásidőben a `HELIX_ALIGN_WIN` környezeti változóval felülbírálható.
+- A megoldás tervezésekor Elixir 1.18 és Erlang/OTP 28 (a kiírás szerint) célzott.
+
 
