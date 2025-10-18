@@ -30,7 +30,7 @@ Kimenet: az összes ilyen tábla listája.
 - A spirál indexeit balról jobbra növeljük. Minden indexcella esetén két ág: helyezés (ha lehet) vagy kihagyás (ha nincs kényszer).
 - A levélnél (idx == n^2) csak akkor elfogadott a tábla, ha globálisan n*m nem-0-t tettünk (minden sor/oszlop m-et tartalmaz).
 - Ezzel garantáltan minden érvényes tábla előáll, a lokális szabályok pedig erősen szűkítik a keresési teret.
- - A keresés elején globális kapacitás-ellenőrzést végzünk: ha a hátralévő spirálpozíciók száma kisebb, mint a még hátralévő nem-0 értékek száma (n*m - placed), az ágat azonnal lezárjuk.
+- A keresés elején globális kapacitás-ellenőrzést végzünk: ha a hátralévő spirálpozíciók száma kisebb, mint a még hátralévő nem-0 értékek száma (n*m - placed), az ágat azonnal lezárjuk.
 
 Miért helyes? A spirál és a next_value összeköti a globális ciklust a lokális lépéssel; a sor/oszlop maszk+kvóta pedig biztosítja az egyediség/kvóta feltételt. A két feltétel együtt pontosan a kiírt problémát kényszeríti ki.
 
@@ -38,11 +38,14 @@ Miért helyes? A spirál és a next_value összeköti a globális ciklust a lok�
 
 - spiral_positions :: [{row, col}] – a spirál sorrendje. Könnyű róla indexelni és a pozíciókat az indexhez rendelni.
 - spiral_positions_t :: tuple – gyors elem/2 hozzáférés a DFS-ben.
+- spiral_row_index_t, spiral_col_index_t :: tuple(int) – az adott spirálindex sor/oszlop indexe (0-alapú), hot path mikro-optimalizáció.
 - index_by_position :: %{ {r,c} => i } – kényszerek gyors illesztéséhez.
 - forced_values_by_index :: %{ i => v } – a DFS lépésnél O(1) nézet.
-- row_value_masks, col_value_masks :: tuple(int) – m-bites maszkok, a használt értékek jelzésére. A tuple put_elem/elem műveletei O(1)-ek.
-- row_nonzero_counts, col_nonzero_counts :: tuple(int) – a „kvóta” (m) betartására.
-- build_suffix_counts eredménye (row_suffix_counts, col_suffix_counts) :: tuple(tuple) – kapacitás-pruninghoz (aktívan használjuk).
+- value_mask_t :: tuple(int) – előre számolt bitmaszkok az 1..m értékekhez (0-indexben a 0 maszk).
+- row_used_value_masks_t, col_used_value_masks_t :: tuple(int) – m-bites maszkok, jelzik, mely értékeket használtuk már soronként/oszloponként.
+- row_placed_count_t, col_placed_count_t :: tuple(int) – a „kvóta” (m) betartására szolgáló számlálók.
+- compute_suffix_capacities eredménye (row_suffix_capacity_t, col_suffix_capacity_t) :: tuple(tuple) – kapacitás-pruninghoz (aktívan használjuk).
+- build_constraint_arrays eredménye: forced_values_t, forced_prefix_counts, next_forced_index_t – kényszerek gyors és olcsó elérése/lookahead.
 
 Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatják a backtrackinget.
 
@@ -51,17 +54,16 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
 - helix/1
   - Belépési pont. Ellenőrzi az inputot, előállítja a spirált és a kényszereket indexre képezi, inicializálja a maszkokat/számlálókat és a suffix statisztikát. Meghívja a visszalépéses keresést; a megoldásokat közvetlenül a levélszinten építi fel (nincs utólagos uniq/validálás).
 
-- spiral_path/1 és spiral_path_layers/5
+- build_spiral_positions/1 és build_spiral_layers/5
   - Előállítja a teljes spirál koordinátalistát. Rétegenként halad, duplikációk nélkül (a szélekhez feltételeket használ).
 
-- build_suffix_counts/2
+- compute_suffix_capacities/2
   - Suffix statisztika: a „következő indextől a végéig” tartományban hány pozíció esik egy adott sorra/oszlopra. A jelenlegi megoldás ezt aktívan használja kapacitás-pruninghoz.
 
-- backtrack_over_spiral/14
-- backtrack_over_spiral/17
+- dfs_spiral_search/…
   - A magkereső, akkumulátoros stílusban. Rész-állapota tartalmazza a „placements” listát (spirálindex, érték párok) és egy eredmény-akkumulátort.
-  - Extra paraméterek: `mask_for_value_t`, valamint a kényszerek tömbjei (`forced_values_t`, `forced_prefix_counts`, `next_forced_t`).
-  - Minden lépésben kiszámítja a next_value-t, és két ágat vizsgál:
+  - Extra paraméterek: `value_mask_t`, valamint a kényszerek tömbjei (`forced_values_t`, `forced_prefix_counts`, `next_forced_index_t`).
+  - Minden lépésben kiszámítja a `next_value = (placed_count mod m) + 1` értéket, és két ágat vizsgál:
     - PLACE: ha nincs kényszer, vagy a kényszer értéke megegyezik a next_value-val, és a sor/oszlop maszk+kvóta engedi → frissít, rekurzál.
     - SKIP: csak ha nincs kényszer → 0-ként továbblép változatlan maszkokkal/számlálókkal.
   - Pruningok:
@@ -70,31 +72,31 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
     - Kényszer-igazítás (window-olt lookahead): csak a SKIP ágon és csak akkor fut, ha a következő kényszer indexe @alignment_window távolságon belül van; ha a moduló fázis nem illeszthető, az ágat lezárjuk.
   - Báziseset: ha `placed_count == n*m` és minden sor/oszlop nem-0 darabszáma m, a „placements”-ből egyszeri allokációval táblát építünk, és az eredményhez adjuk.
 
-- can_place_value?/8
+- can_place_mask?/8
   - O(1)-ben eldönti, hogy egy érték elhelyezhető-e egy cellába a sor/oszlop maszkok és számlálók alapján. A függvény maszkot (bitset) kap a konkrét érték helyett.
 
-- mark_mask_used/3
+- apply_value_mask/3
   - Beállítja a megfelelő bitet a sor/oszlop maszkban (precomputált értékmaszkkal).
 
-- counts_reach_target?/2
+- counts_meet_quota?/2
   - Igaz, ha minden érintett számláló elérte az m-et.
 
-- build_board_from_assignments/2
+- assemble_board_from_map/2
   - A kiválasztott (nem-0) hozzárendelésekből táblát épít, a hiányzó helyeket 0-val tölti.
 
   (Megszűnt) valid_solution_board?/4
   - A korábbi defenzív ellenőrzőt eltávolítottuk; a keresés konstrukciósan csak érvényes táblákat ad vissza.
  
-- capacity_ok_for_lines?/9
+- has_sufficient_line_capacity?/9
   - A következő index utáni suffix tartományt vizsgálja: az érintett sorban/oszlopban maradt cellák száma elegendő-e a még hiányzó nem-0 értékekhez (m - current_count). Ha bármelyik tengelyen kevés a hely, az ágat lezárjuk.
 
-- build_mask_table/1
+- build_value_mask_table/1
   - Precomputált maszkok 1..m értékekhez (0. index: 0 maszk) a gyors bitműveletekhez.
 
-- build_forced_arrays/2
-  - A kényszereket tömbökké alakítja: `forced_values_t` (érték vagy 0), `forced_prefix_counts` (prefix kényszerszám), `next_forced_t` (következő kényszer indexe vagy -1).
+- build_constraint_arrays/2
+  - A kényszereket tömbökké alakítja: `forced_values_t` (érték vagy 0), `forced_prefix_counts` (prefix kényszerszám), `next_forced_index_t` (következő kényszer indexe vagy -1).
 
-- alignment_possible?/6 és alignment_window_ok?/6
+- alignment_feasible?/6 és alignment_window_allows?/8
   - Előbbi moduló-illeszthetőséget dönt el a következő kényszer indexéig a min/max helyezésszám tartományában; utóbbi csak akkor hívja, ha a kényszer a @alignment_window ablakban van.
 
 ## miért működik ez a megközelítés?
@@ -119,7 +121,7 @@ A fenti számokat az alábbiak adják:
 - Bitmaszkos sor/oszlop-ellenőrzés és kvótaszámlálás (O(1)).
 - Többlépcsős pruning: globális kapacitás + suffix-alapú sor/oszlop kapacitás + window-olt kényszer-igazítás (SKIP-ágon).
 
-Megjegyzés: a kényszer-igazítás ablakmérete a kódban @alignment_window (alapértelmezés: 64). Nagyobb ablak többet tud metszeni, de növelheti a per-lépés overheadet; kisebb ablak gyorsabb, de kevesebbet vág.
+Megjegyzés: a kényszer-igazítás ablakmérete a kódban @alignment_window (alapértelmezés: 64). Futásidőben a HELIX_ALIGN_WIN környezeti változóval felülbírálható (pl. 0 = kikapcsolás). Nagyobb ablak többet tud metszeni, de növelheti a per-lépés overheadet; kisebb ablak gyorsabb, de kevesebbet vág.
 
 ## optimalizációs terv (további gyorsítások)
 
