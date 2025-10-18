@@ -1,0 +1,99 @@
+Adott egy n*n mezőből álló, négyzet alakú tábla, amelynek egyes mezőiben 1 és m közötti számok vannak. 
+A feladat az, hogy további 1 és m közötti számokat helyezzünk el a táblában úgy, hogy az alábbi feltételek teljesüljenek:
+Minden sorban és minden oszlopban az 1..m számok mindegyike pontosan egyszer szerepel.
+
+A bal felső sarokból induló tekeredő vonal mentén a számok rendre az 1,2,...m,1,2,...,m,... sorrendben követik egymást.
+A tekeredő vonalat a következőképpen definiáljuk. Először a négyzet első sorában haladunk balról jobbra, 
+majd az utolsó oszlopban felülről lefelé. Ezután az utolsó sorban megyünk jobbról balra, majd az első oszlopban alulról fölfelé, 
+egészen a 2. sor 1. mezőjéig. Miután így bejártuk a négyzetes tábla szélső sorait és oszlopait, rekurzívan folytatjuk a bejárást 
+a 2. sor 2. mezőjében kezdődő (n-2)*(n-2) mezőből álló négyzettel.
+
+Az 1. ábra egy feladványt ábrázol, a 2. ábra ennek (egyetlen) megoldását mutatja.
+
+1. ábra. Egy feladvány (n=6, m=3):
+
+-----------------------\
+                  2     |
+/-------------------\   |
+|     1             |   |
+|   /-----------\   |   |
+|   |           |   |   |
+|   |   /---\   |   |   |
+|   |   |       |   | 1 |
+|   |   \-------/   |   |
+|   |               |   |
+|   \---------------/   |
+|                       |
+\-----------------------/
+
+2. ábra. A feladvány megoldása:
+
+-----------------------\
+  1   -   -   -   2   3 |
+/-------------------\   |
+| -   1   2   3   - | - |
+|   /-----------\   |   |
+| - | 3   1   2 | - | - |
+|   |   /---\   |   |   |
+| - | 2 | 3   - | - | 1 |
+|   |   \-------/   |   |
+| 3 | -   -   -   1 | 2 |
+|   \---------------/   |
+| 2   -   -   1   3   - |
+\-----------------------/
+
+A feladat a helix/1 függvény megírása. A formális specifikációt lejjebb találja.
+A függvény egyetlen paramétere a feladványt írja le, visszatérési értéke pedig a feladvány összes megoldásának a listája, 
+tetszőleges sorrendben. Ha egy feladványnak nincs megoldása, a visszatérési érték az üres lista. 
+Egy-egy megoldás a kitöltött táblát írja egész számokból álló listák listájaként. 
+Minden szám a tábla egy mezőjének értéket adja meg: 
+ha 0, a mező üres, 
+egyébként pedig az i értek, ahol 1<=i<=m.
+Ügyeljen a hatékonyságra. Teljesítménymérésre használhatja a Benchee modult.
+
+Az 1. ábrán bemutatott feladvány esetén például a helix/1 függvény paramétere:
+{6, 3, [{{1,5},2},{{2,2},1},{{4,6},1}]}
+
+A 2. ábrán látható megoldást írja le például az alábbi (egyelemű) megoldás-lista:
+
+     [[[1,0,0,0,2,3],
+       [0,1,2,3,0,0],
+       [0,3,1,2,0,0],
+       [0,2,3,0,0,1],
+       [3,0,0,0,1,2],
+       [2,0,0,1,3,0]]
+     ]
+
+Elixir-specifikációk
+
+Típusok a feladvány alapadatainak megadására
+      @type size()  :: integer() # tábla mérete (0 < n)
+      @type cycle() :: integer() # ciklus hossza (0 < m <= n)
+      @type value() :: integer() # mező értéke (0 < v <= m)
+
+Típusok egy mező koordinátáinak megadására
+      @type row()   :: integer()       # sor száma (1-től n-ig)
+      @type col()   :: integer()       # oszlop száma (1-től n-ig)
+      @type field() :: {row(), col()}  # mező koordinátái
+
+Típusok a feladvány leírására
+      @type field_value() :: {field(), value()}                 # mező és értéke
+      @type puzzle_desc() :: {size(), cycle(), [field_value()]} # feladvány
+
+Típusok az eredmény leírására
+      @type retval()    :: integer()    # eredménymező értéke (0 <= rv <= m)
+      @type solution()  :: [[retval()]] # egy megoldás
+      @type solutions() :: [solution()] # összes megoldás
+
+A helix/1 függvény specifikációja
+      @spec helix(sd::puzzle_desc()) :: ss::solutions()
+      # ss az sd feladványleíróval megadott feladvány összes megoldásának listája
+
+Példa
+Az 1. ábrán látható feladvány a 2. ábrán látható megoldással:
+  iex> Nhf1.helix({6, 3, [{{1,5},2},{{2,2},1},{{4,6},1}]})
+  [[[1,0,0,0,2,3],[0,1,2,3,0,0],[0,3,1,2,0,0],[0,2,3,0,0,1],[3,0,0,0,1,2],[2,0,0,1,3,0]]
+    
+A segédfüggvények legyenek lokálisak (defp), írjon hozzájuk típusspecifikációt és fejkommentként tömör leírást is.
+A beadott programokat Linux környezetben Elixir 1.18 (Erlang/OTP 28) rendszerrel teszteljük.
+
