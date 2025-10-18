@@ -24,7 +24,7 @@ Típusok (a kódban is):
 
 Specifikáció:
 
-`@spec helix(sd :: puzzle_desc()) :: solutions()`
+`@spec helix(sd :: puzzle_desc()) :: ss :: solutions()`
 
 Példa (feladat.txt):
 
@@ -40,27 +40,27 @@ A globális feltételeket egy rögzített spirál sorrend mentén lokális lép�
 2) Megszorítások (kényszerek) indexre vetítése
 - A bemeneti `{{r,c}, v}` kényszereket „spirálindex → fix érték” formára képezzük le.
 - A `build_constraint_arrays/2` három tömböt készít a hot path-hoz:
-  - `forced_values_t`: indexenként 0 (nincs kényszer) vagy v ∈ 1..m;
-  - `forced_prefix_counts`: prefix-összegek, hány kényszer esik az i előtti indexekre (lookahead határokhoz);
-  - `next_forced_index_t`: a következő (≥ i) kényszer indexe vagy −1.
+  - `forced_value_at_index_t`: indexenként 0 (nincs kényszer) vagy v ∈ 1..m;
+  - `forced_prefix_count_t`: prefix-összegek, hány kényszer esik az i előtti indexekre (lookahead határokhoz);
+  - `next_forced_index_at_or_after_t`: a következő (≥ i) kényszer indexe vagy −1.
 - A `validate_constraints/3` defenzív input-ellenőrzést végez.
 
 3) Sor/oszlop egyediség és kvóta bitmaszkokkal
 - Minden sorhoz és oszlophoz tartunk egy „használt értékek” bitmaszkot és egy számlálót a nem-0 darabokra.
-- A `value_mask_t` előre tartalmazza a 0 és 1..m maszkjait.
+- A `value_bitmask_t` előre tartalmazza a 0 és 1..m maszkjait.
 - A `can_place_mask?/8` O(1)-ben dönti el, hogy (row, col) pozícióba lerakható-e az adott érték: a megfelelő bitnek szabadnak kell lennie mindkét maszkban, és a sor/oszlop számlálója < m kell legyen.
 - Az `apply_value_mask/3` állítja be a biteket, a `counts_meet_quota?/2` pedig ellenőrzi levélszinten, hogy minden sor/oszlop pontosan m nem-0-t kapott.
 
 4) Suffix kapacitások előszámítása a metszéshez
-- A `compute_suffix_capacities/2` előállítja, hogy az index i-től a végéig még hány spirálpozíció jut egyes sorokra/oszlopokra. Keresés közben a `has_sufficient_line_capacity?/9` gyorsan kizárja azokat az ágakat, ahol valamelyik sor/oszlop már nem érheti el az m darab nem-0 kvótát.
+- A `compute_suffix_capacities/2` előállítja, hogy az index i-től a végéig még hány spirálpozíció jut egyes sorokra/oszlopokra. Keresés közben a `has_sufficient_row_and_column_capacity?/9` gyorsan kizárja azokat az ágakat, ahol valamelyik sor/oszlop már nem érheti el az m darab nem-0 kvótát.
 
 5) Spirálfázis és keresés
 - A lépés `idx`-nél az eddig lerakott nem-0 darab `placed_count`. A következő elvárt helix-érték lokálisan adódik: `next_value = (placed_count mod m) + 1`.
 - A `dfs_spiral_search/…` a backtracking magja. Minden spirálpozíciónál:
   - Ha itt kényszer van, az csak akkor maradhat, ha megegyezik a `next_value`-val és átmegy a sor/oszlop ellenőrzésen; különben metszés.
   - Ha nincs kényszer, két ág lehetséges:
-    - PLACE: lerakjuk a `next_value`-t, ha engedett;
-    - SKIP: üresen hagyjuk (0) — de csak ha ez a közeli kényszerekig megtartható helix-illeszthetőséget eredményez.
+    - PLACE (`maybe_place_branch/…`): lerakjuk a `next_value`-t, ha engedett;
+    - SKIP (`maybe_skip_branch/…`): üresen hagyjuk (0) — de csak ha ez a közeli kényszerekig megtartható helix-illeszthetőséget eredményez.
 - Globális kapacitásmetszés: ha a hátralévő pozíciók száma < a hátralévő nem-0 helyezések száma, az ágat lezárjuk.
 - Igazítás (alignment) lookahead: az `alignment_window_allows?/8` csak akkor hívja az `alignment_feasible?/6`-ot, ha a következő kényszer indexe egy konfigurálható ablakon belül van. Ez megakadályozza, hogy SKIP döntések később biztos lehetetlenséget okozzanak.
 
@@ -96,7 +96,7 @@ A globális feltételeket egy rögzített spirál sorrend mentén lokális lép�
   - Előre kiszámítjuk soronként/oszloponként a hátralévő helyek számát; ez olcsó, de erős metszést ad, ha egy vonal biztosan nem érheti el az m kvótát.
 
 - Kényszertömbök és ablakolt igazítás
-  - A `forced_values_t`, `forced_prefix_counts`, `next_forced_index_t` mikrolookaheadot tesz lehetővé. Az igazítás ellenőrzését egy konfigurálható ablak (module attribútum: `@alignment_window`, alapértelmezés 256) korlátozza a per-lépés költség miatt; futásidőben felülbírálható `HELIX_ALIGN_WIN` környezeti változóval.
+  - A `forced_value_at_index_t`, `forced_prefix_count_t`, `next_forced_index_at_or_after_t` mikrolookaheadot tesz lehetővé. Az igazítás ellenőrzését egy konfigurálható ablak (module attribútum: `@alignment_window`, alapértelmezés 64) korlátozza a per-lépés költség miatt; futásidőben felülbírálható `HELIX_ALIGN_WIN` környezeti változóval.
 
 - Egyszerű tábla-reprezentáció
   - A táblát csak levélszinten állítjuk össze egy tömör hozzárendelés-mapból; ez csökkenti az allokációt és a másolást a keresés során.
