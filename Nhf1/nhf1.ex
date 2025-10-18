@@ -65,23 +65,15 @@ defmodule Nhf1 do
           row_nonzero_counts = List.to_tuple(zero_counts_list)
           col_nonzero_counts = List.to_tuple(zero_counts_list)
 
-          board_assignments = %{}
-
-          assignment_solutions =
-            backtrack_over_spiral(0, 0, board_assignments, n, m,
+          placements = []
+          boards_acc =
+            backtrack_over_spiral(0, 0, placements, n, m,
                                   spiral_positions_t,
                                   row_value_masks, col_value_masks, row_nonzero_counts, col_nonzero_counts,
                                   row_suffix_counts, col_suffix_counts,
-                                  forced_values_by_index)
-
-          boards = Enum.map(assignment_solutions, &build_board_from_assignments(&1, n))
-          # Ensure uniqueness and final validation (defensive)
-          positions_list = Tuple.to_list(spiral_positions_t)
-          validated_boards =
-            boards
-            |> Enum.uniq()
-            |> Enum.filter(&valid_solution_board?(&1, n, m, positions_list))
-          validated_boards
+                                  forced_values_by_index,
+                                  [])
+          boards_acc
         end
       _ -> []
     end
@@ -144,22 +136,34 @@ defmodule Nhf1 do
 
   # Index-alapú visszalépéses keresés a spirál mentén.
   # Minden lépésben a soron következő nem-0 érték `next_value = (placed_count mod m) + 1`.
-  @spec backtrack_over_spiral(non_neg_integer(), non_neg_integer(), map(), size(), cycle(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), map()) :: [map()]
-  defp backtrack_over_spiral(idx, placed_count, board_assignments, n, m,
+  @spec backtrack_over_spiral(non_neg_integer(), non_neg_integer(), list(), size(), cycle(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), map(), [solution()]) :: [solution()]
+  defp backtrack_over_spiral(idx, placed_count, placements, n, m,
                              spiral_positions_t,
                              row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
                              row_suffix_counts, col_suffix_counts,
-                             forced_values_by_index) do
+                             forced_values_by_index,
+                             acc) do
     n2 = tuple_size(spiral_positions_t)
     # Globális kapacitás-pruning: a hátralévő pozíciók száma nem lehet kevesebb a még elhelyezendő nem-0 értékeknél
     remaining_positions = n2 - idx
     remaining_needed = n * m - placed_count
     if remaining_positions < remaining_needed do
-      []
+      acc
     else if idx == n2 do
       # Alapeset: akkor és csak akkor megoldás, ha minden sor/oszlop m darab nem-0 értéket tartalmaz,
       # és globálisan is n*m darab értéket helyeztünk el.
-      if placed_count == n * m and counts_reach_target?(row_nonzero_counts, m) and counts_reach_target?(col_nonzero_counts, m), do: [board_assignments], else: []
+      if placed_count == n * m and counts_reach_target?(row_nonzero_counts, m) and counts_reach_target?(col_nonzero_counts, m) do
+        # Építsük meg a táblát a placements alapján
+        assignments =
+          Enum.reduce(placements, %{}, fn {pidx, v}, accm ->
+            {rr, cc} = elem(spiral_positions_t, pidx)
+            Map.put(accm, {rr, cc}, v)
+          end)
+        board = build_board_from_assignments(assignments, n)
+        [board | acc]
+      else
+        acc
+      end
     else
       {r, c} = elem(spiral_positions_t, idx)
       row_idx0 = r - 1
@@ -167,7 +171,7 @@ defmodule Nhf1 do
       forced_value = Map.get(forced_values_by_index, idx, 0)
       next_value = rem(placed_count, m) + 1
 
-      solutions_place_branch =
+      acc_after_place =
         # Helyezés ága: ha nincs kényszer, vagy a kényszer épp `next_value`, és a sor/oszlop szabályok engedik.
         if (forced_value == 0 or forced_value == next_value) and can_place_value?(row_idx0, col_idx0, next_value, row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts, m) do
           new_row_value_masks = mark_value_used(row_value_masks, row_idx0, next_value)
@@ -176,37 +180,39 @@ defmodule Nhf1 do
           new_col_nonzero_counts = put_elem(col_nonzero_counts, col_idx0, elem(col_nonzero_counts, col_idx0) + 1)
           # Lokális kapacitás-pruning: a hátralévő pozíciók azonos sorban/oszlopban elegendőek-e a kvótához
           if capacity_ok_for_lines?(idx + 1, row_idx0, col_idx0, new_row_nonzero_counts, new_col_nonzero_counts, row_suffix_counts, col_suffix_counts, n, m) do
-            new_assignments = Map.put(board_assignments, {r, c}, next_value)
-            backtrack_over_spiral(idx + 1, placed_count + 1, new_assignments, n, m,
+            new_placements = [{idx, next_value} | placements]
+            backtrack_over_spiral(idx + 1, placed_count + 1, new_placements, n, m,
                                   spiral_positions_t,
                                   new_row_value_masks, new_col_value_masks_by_col, new_row_nonzero_counts, new_col_nonzero_counts,
                                   row_suffix_counts, col_suffix_counts,
-                                  forced_values_by_index)
+                                  forced_values_by_index,
+                                  acc)
           else
-            []
+            acc
           end
         else
-          []
+          acc
         end
 
-      solutions_skip_branch =
+      acc_after_skip =
         # Kihagyás (0) ága: csak akkor engedett, ha nincs kényszer érték ezen a pozíción.
         if forced_value == 0 do
           # Lokális kapacitás-pruning a sorra/oszlopra nézve, miután elhagytuk ezt a cellát
           if capacity_ok_for_lines?(idx + 1, row_idx0, col_idx0, row_nonzero_counts, col_nonzero_counts, row_suffix_counts, col_suffix_counts, n, m) do
-            backtrack_over_spiral(idx + 1, placed_count, board_assignments, n, m,
+            backtrack_over_spiral(idx + 1, placed_count, placements, n, m,
                                   spiral_positions_t,
                                   row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
                                   row_suffix_counts, col_suffix_counts,
-                                  forced_values_by_index)
+                                  forced_values_by_index,
+                                  acc_after_place)
           else
-            []
+            acc_after_place
           end
         else
-          []
+          acc_after_place
         end
 
-      solutions_place_branch ++ solutions_skip_branch
+      acc_after_skip
     end end
   end
 

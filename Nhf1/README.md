@@ -49,7 +49,7 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
 ## függvények és szerepük
 
 - helix/1
-  - Belépési pont. Ellenőrzi az inputot, előállítja a spirált és a kényszereket indexre képezi, inicializálja a maszkokat/számlálókat. Meghívja a visszalépéses keresést és validálja/egyediíti a megoldásokat.
+  - Belépési pont. Ellenőrzi az inputot, előállítja a spirált és a kényszereket indexre képezi, inicializálja a maszkokat/számlálókat és a suffix statisztikát. Meghívja a visszalépéses keresést; a megoldásokat közvetlenül a levélszinten építi fel (nincs utólagos uniq/validálás).
 
 - spiral_path/1 és spiral_path_layers/5
   - Előállítja a teljes spirál koordinátalistát. Rétegenként halad, duplikációk nélkül (a szélekhez feltételeket használ).
@@ -57,14 +57,15 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
 - build_suffix_counts/2
   - Suffix statisztika: a „következő indextől a végéig” tartományban hány pozíció esik egy adott sorra/oszlopra. A jelenlegi megoldás ezt aktívan használja kapacitás-pruninghoz.
 
-- backtrack_over_spiral/13
-  - A magkereső. Paraméterei között: aktuális index, eddig elhelyezett darabszám, hozzárendelések map, spirál tuple, sor/oszlop maszkok és számlálók, suffix adatok, kényszerek.
-  - Minden lépésben kiszámítja a next_value-t, és:
-    - PLACE ág: ha nincs kényszer vagy a kényszer megegyezik a next_value-val, és a sor/oszlop szabály engedi → helyez, frissít és rekurzál.
-    - SKIP ág: ha nincs kényszer → kihagy (0), változatlan állapottal lép tovább.
-  - Lépés előtt globális kapacitás-pruning: ha „hátralévő pozíciók < hátralévő nem-0”, az ágat lezárjuk.
-  - Ágban (place és skip) lokális kapacitás-pruning: a suffix tömbökkel ellenőrizzük, hogy az érintett sor/oszlop kvótája még elérhető-e.
-  - Báziseset: csak akkor ad vissza megoldást, ha minden sor/oszlop kvótája teljesült és globálisan is n*m érték van.
+- backtrack_over_spiral/14
+  - A magkereső, akkumulátoros stílusban. Rész-állapota tartalmazza a „placements” listát (spirálindex, érték párok) és egy eredmény-akkumulátort.
+  - Minden lépésben kiszámítja a next_value-t, és két ágat vizsgál:
+    - PLACE: ha nincs kényszer, vagy a kényszer értéke megegyezik a next_value-val, és a sor/oszlop maszk+kvóta engedi → frissít, rekurzál.
+    - SKIP: csak ha nincs kényszer → 0-ként továbblép változatlan maszkokkal/számlálókkal.
+  - Pruningok:
+    - Globális kapacitás: ha a hátralévő spirálpozíciók száma < a hátralévő nem-0 értékek száma (n*m - placed), az ágat lezárjuk.
+    - Lokális (suffix) kapacitás: a következő indextől mért sor/oszlop-kapacitás elegendő-e a kvótához; ha nem, az ágat lezárjuk.
+  - Báziseset: ha `placed_count == n*m` és minden sor/oszlop nem-0 darabszáma m, a „placements”-ből egyszeri allokációval táblát építünk, és az eredményhez adjuk.
 
 - can_place_value?/8
   - O(1)-ben eldönti, hogy egy érték elhelyezhető-e egy cellába a sor/oszlop maszkok és számlálók alapján.
@@ -79,7 +80,7 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
   - A kiválasztott (nem-0) hozzárendelésekből táblát épít, a hiányzó helyeket 0-val tölti.
 
 - valid_solution_board?/4
-  - Defenzív ellenőrzés: sor/oszlop kvóta teljesült, és a spirál menti nem-0 sorozat pontosan a 1..m ciklust adja (hossz: n*m).
+  - Defenzív ellenőrzés: sor/oszlop kvóta teljesült, és a spirál menti nem-0 sorozat pontosan a 1..m ciklust adja (hossz: n*m). A jelenlegi implementáció nem hívja; hibakereséshez opcionális.
  
 - capacity_ok_for_lines?/9
   - A következő index utáni suffix tartományt vizsgálja: az érintett sorban/oszlopban maradt cellák száma elegendő-e a még hiányzó nem-0 értékekhez (m - current_count). Ha bármelyik tengelyen kevés a hely, az ágat lezárjuk.
@@ -89,6 +90,22 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
 - A spirál index→next_value leképezése lokálissá teszi a globális ciklust.
 - A sor/oszlop maszk+kvóta lokálisan is elég erős megszorítás, így a keresés korán elvágja a nem ígéretes ágakat.
 - A kényszerértékek indexbe rendezése O(1) döntést tesz lehetővé minden lépésben.
+
+## teljesítmény (Benchee) és eddigi optimalizációk
+
+Mérés: a repo-ban található `Nhf1/bench.exs` Benchee-szkripttel mértük a `Nhf1.helix/1` futási idejét és memóriahasználatát a mellékelt 0–11 teszteseteken.
+
+Válogatott eredmények (átlag, hozzávetőlegesen):
+- 8×8, m=4 (tc10): ~0.94 s; ~401 MB.
+- 9×9, m=3 (tc11): ~0.17 s; ~59 MB.
+- 8×8, m=3 (tc9): ~0.056 s; ~23 MB.
+- 6×6, m=3 (tc5): ~1.0–1.1 ms; ~0.38 MB.
+
+A fenti számokat az alábbiak adják:
+- Duplikációmentes spirálgenerálás (élszűrők az egysoros/egyoszlopos rétegekre).
+- Akkumulátoros DFS: a táblák csak levélszinten épülnek.
+- Bitmaszkos sor/oszlop-ellenőrzés és kvótaszámlálás (O(1)).
+- Kettős pruning: globális kapacitás + suffix-alapú sor/oszlop kapacitás.
 
 ## optimalizációs terv (további gyorsítások)
 
@@ -117,6 +134,11 @@ Az alap megoldás helyes és a fenti két pruning már aktív. További, még ne
 7) Párhuzamosítás
 - A backtracking felső néhány szintjén a külön ágak függetlenül futtathatók; Elixir Task/Flow-vel korlátozott szinten párhuzamosítható.
 
+8) Mikro-optimalizációk
+- Maszkok előkészítése tömbbe (`mask_for_value[v] = 1 <<< (v-1)`).
+- Inline frissítések, ideiglenes változók minimalizálása a hot path-on.
+- PLACE ág preferálása „szűk” suffix-kapacitásnál a gyorsabb zsákutcákért.
+
 ## futtatás
 
 Nyissa meg a `Nhf1/nhf1.ex` fájlt és futtassa a workspace gyökérből:
@@ -126,6 +148,12 @@ elixir Nhf1/nhf1.ex
 ```
 
 Ez kiírja az összehasonlító tesztesetek eredményeit (true/false párok). A jelenlegi megoldás a mellékelt 0–11-es teszteseteket teljesíti.
+
+Benchee benchmark futtatása:
+
+```pwsh
+elixir Nhf1/bench.exs
+```
 
 ## zárszó
 
