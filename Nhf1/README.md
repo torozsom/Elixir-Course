@@ -58,20 +58,23 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
   - Suffix statisztika: a „következő indextől a végéig” tartományban hány pozíció esik egy adott sorra/oszlopra. A jelenlegi megoldás ezt aktívan használja kapacitás-pruninghoz.
 
 - backtrack_over_spiral/14
+- backtrack_over_spiral/17
   - A magkereső, akkumulátoros stílusban. Rész-állapota tartalmazza a „placements” listát (spirálindex, érték párok) és egy eredmény-akkumulátort.
+  - Extra paraméterek: `mask_for_value_t`, valamint a kényszerek tömbjei (`forced_values_t`, `forced_prefix_counts`, `next_forced_t`).
   - Minden lépésben kiszámítja a next_value-t, és két ágat vizsgál:
     - PLACE: ha nincs kényszer, vagy a kényszer értéke megegyezik a next_value-val, és a sor/oszlop maszk+kvóta engedi → frissít, rekurzál.
     - SKIP: csak ha nincs kényszer → 0-ként továbblép változatlan maszkokkal/számlálókkal.
   - Pruningok:
     - Globális kapacitás: ha a hátralévő spirálpozíciók száma < a hátralévő nem-0 értékek száma (n*m - placed), az ágat lezárjuk.
     - Lokális (suffix) kapacitás: a következő indextől mért sor/oszlop-kapacitás elegendő-e a kvótához; ha nem, az ágat lezárjuk.
+    - Kényszer-igazítás (window-olt lookahead): csak a SKIP ágon és csak akkor fut, ha a következő kényszer indexe @alignment_window távolságon belül van; ha a moduló fázis nem illeszthető, az ágat lezárjuk.
   - Báziseset: ha `placed_count == n*m` és minden sor/oszlop nem-0 darabszáma m, a „placements”-ből egyszeri allokációval táblát építünk, és az eredményhez adjuk.
 
 - can_place_value?/8
-  - O(1)-ben eldönti, hogy egy érték elhelyezhető-e egy cellába a sor/oszlop maszkok és számlálók alapján.
+  - O(1)-ben eldönti, hogy egy érték elhelyezhető-e egy cellába a sor/oszlop maszkok és számlálók alapján. A függvény maszkot (bitset) kap a konkrét érték helyett.
 
-- mark_value_used/3
-  - Beállítja a megfelelő bitet a sor/oszlop maszkban.
+- mark_mask_used/3
+  - Beállítja a megfelelő bitet a sor/oszlop maszkban (precomputált értékmaszkkal).
 
 - counts_reach_target?/2
   - Igaz, ha minden érintett számláló elérte az m-et.
@@ -79,11 +82,20 @@ Ezek a struktúrák minimális allokációval és gyors indexeléssel támogatj�
 - build_board_from_assignments/2
   - A kiválasztott (nem-0) hozzárendelésekből táblát épít, a hiányzó helyeket 0-val tölti.
 
-- valid_solution_board?/4
-  - Defenzív ellenőrzés: sor/oszlop kvóta teljesült, és a spirál menti nem-0 sorozat pontosan a 1..m ciklust adja (hossz: n*m). A jelenlegi implementáció nem hívja; hibakereséshez opcionális.
+  (Megszűnt) valid_solution_board?/4
+  - A korábbi defenzív ellenőrzőt eltávolítottuk; a keresés konstrukciósan csak érvényes táblákat ad vissza.
  
 - capacity_ok_for_lines?/9
   - A következő index utáni suffix tartományt vizsgálja: az érintett sorban/oszlopban maradt cellák száma elegendő-e a még hiányzó nem-0 értékekhez (m - current_count). Ha bármelyik tengelyen kevés a hely, az ágat lezárjuk.
+
+- build_mask_table/1
+  - Precomputált maszkok 1..m értékekhez (0. index: 0 maszk) a gyors bitműveletekhez.
+
+- build_forced_arrays/2
+  - A kényszereket tömbökké alakítja: `forced_values_t` (érték vagy 0), `forced_prefix_counts` (prefix kényszerszám), `next_forced_t` (következő kényszer indexe vagy -1).
+
+- alignment_possible?/6 és alignment_window_ok?/6
+  - Előbbi moduló-illeszthetőséget dönt el a következő kényszer indexéig a min/max helyezésszám tartományában; utóbbi csak akkor hívja, ha a kényszer a @alignment_window ablakban van.
 
 ## miért működik ez a megközelítés?
 
@@ -105,7 +117,9 @@ A fenti számokat az alábbiak adják:
 - Duplikációmentes spirálgenerálás (élszűrők az egysoros/egyoszlopos rétegekre).
 - Akkumulátoros DFS: a táblák csak levélszinten épülnek.
 - Bitmaszkos sor/oszlop-ellenőrzés és kvótaszámlálás (O(1)).
-- Kettős pruning: globális kapacitás + suffix-alapú sor/oszlop kapacitás.
+- Többlépcsős pruning: globális kapacitás + suffix-alapú sor/oszlop kapacitás + window-olt kényszer-igazítás (SKIP-ágon).
+
+Megjegyzés: a kényszer-igazítás ablakmérete a kódban @alignment_window (alapértelmezés: 64). Nagyobb ablak többet tud metszeni, de növelheti a per-lépés overheadet; kisebb ablak gyorsabb, de kevesebbet vág.
 
 ## optimalizációs terv (további gyorsítások)
 
@@ -153,6 +167,16 @@ Benchee benchmark futtatása:
 
 ```pwsh
 elixir Nhf1/bench.exs
+```
+
+Csak bizonyos bemenetek szűrése (környezeti változóval):
+
+```pwsh
+# csak tc10 és tc11
+$env:BENCH_FILTER = "tc1[01]"; elixir Nhf1/bench.exs
+
+# csak 8x8-as esetek
+$env:BENCH_FILTER = "8x8"; elixir Nhf1/bench.exs
 ```
 
 ## zárszó

@@ -9,6 +9,10 @@ defmodule Nhf1 do
 
   import Bitwise
 
+  # Alignment lookahead ablakméret (indexekben). Csak akkor futtatjuk a kényszer-igazítást,
+  # ha a következő kényszer ezen ablakon belül van.
+  @alignment_window 64
+
 
   @type size()  :: integer() # tábla mérete (0 < n)
   @type cycle() :: integer() # ciklus hossza (0 < m <= n)
@@ -54,6 +58,13 @@ defmodule Nhf1 do
             fixed_cells
             |> Enum.reduce(%{}, fn {{r, c}, v}, acc -> Map.put(acc, Map.fetch!(index_by_position, {r, c}), v) end)
 
+          # Kényszerek tömbösítése gyors hozzáféréshez és lookaheadhoz
+          n2 = length(spiral_positions)
+          {forced_values_t, forced_prefix_counts, next_forced_t} = build_forced_arrays(forced_values_by_index, n2)
+
+          # Előre kiszámolt maszkok az 1..m értékekhez
+          mask_for_value_t = build_mask_table(m)
+
           # Suffix kapacitások (sor/oszlop pozíciók száma i..vég tartományban) – opcionális pruninghoz
           {row_suffix_counts, col_suffix_counts} = build_suffix_counts(spiral_positions, n)
 
@@ -71,7 +82,8 @@ defmodule Nhf1 do
                                   spiral_positions_t,
                                   row_value_masks, col_value_masks, row_nonzero_counts, col_nonzero_counts,
                                   row_suffix_counts, col_suffix_counts,
-                                  forced_values_by_index,
+                                  mask_for_value_t,
+                                  forced_values_t, forced_prefix_counts, next_forced_t,
                                   [])
           boards_acc
         end
@@ -136,12 +148,13 @@ defmodule Nhf1 do
 
   # Index-alapú visszalépéses keresés a spirál mentén.
   # Minden lépésben a soron következő nem-0 érték `next_value = (placed_count mod m) + 1`.
-  @spec backtrack_over_spiral(non_neg_integer(), non_neg_integer(), list(), size(), cycle(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), map(), [solution()]) :: [solution()]
+  @spec backtrack_over_spiral(non_neg_integer(), non_neg_integer(), list(), size(), cycle(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), tuple(), [solution()]) :: [solution()]
   defp backtrack_over_spiral(idx, placed_count, placements, n, m,
                              spiral_positions_t,
                              row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
                              row_suffix_counts, col_suffix_counts,
-                             forced_values_by_index,
+                             mask_for_value_t,
+                             forced_values_t, forced_prefix_counts, next_forced_t,
                              acc) do
     n2 = tuple_size(spiral_positions_t)
     # Globális kapacitás-pruning: a hátralévő pozíciók száma nem lehet kevesebb a még elhelyezendő nem-0 értékeknél
@@ -168,14 +181,15 @@ defmodule Nhf1 do
       {r, c} = elem(spiral_positions_t, idx)
       row_idx0 = r - 1
       col_idx0 = c - 1
-      forced_value = Map.get(forced_values_by_index, idx, 0)
+      forced_value = elem(forced_values_t, idx)
       next_value = rem(placed_count, m) + 1
+      next_mask = elem(mask_for_value_t, next_value)
 
       acc_after_place =
         # Helyezés ága: ha nincs kényszer, vagy a kényszer épp `next_value`, és a sor/oszlop szabályok engedik.
-        if (forced_value == 0 or forced_value == next_value) and can_place_value?(row_idx0, col_idx0, next_value, row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts, m) do
-          new_row_value_masks = mark_value_used(row_value_masks, row_idx0, next_value)
-          new_col_value_masks_by_col = mark_value_used(col_value_masks_by_col, col_idx0, next_value)
+        if (forced_value == 0 or forced_value == next_value) and can_place_value?(row_idx0, col_idx0, next_mask, row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts, m) do
+          new_row_value_masks = mark_mask_used(row_value_masks, row_idx0, next_mask)
+          new_col_value_masks_by_col = mark_mask_used(col_value_masks_by_col, col_idx0, next_mask)
           new_row_nonzero_counts = put_elem(row_nonzero_counts, row_idx0, elem(row_nonzero_counts, row_idx0) + 1)
           new_col_nonzero_counts = put_elem(col_nonzero_counts, col_idx0, elem(col_nonzero_counts, col_idx0) + 1)
           # Lokális kapacitás-pruning: a hátralévő pozíciók azonos sorban/oszlopban elegendőek-e a kvótához
@@ -185,7 +199,8 @@ defmodule Nhf1 do
                                   spiral_positions_t,
                                   new_row_value_masks, new_col_value_masks_by_col, new_row_nonzero_counts, new_col_nonzero_counts,
                                   row_suffix_counts, col_suffix_counts,
-                                  forced_values_by_index,
+                                  mask_for_value_t,
+                                  forced_values_t, forced_prefix_counts, next_forced_t,
                                   acc)
           else
             acc
@@ -199,12 +214,18 @@ defmodule Nhf1 do
         if forced_value == 0 do
           # Lokális kapacitás-pruning a sorra/oszlopra nézve, miután elhagytuk ezt a cellát
           if capacity_ok_for_lines?(idx + 1, row_idx0, col_idx0, row_nonzero_counts, col_nonzero_counts, row_suffix_counts, col_suffix_counts, n, m) do
-            backtrack_over_spiral(idx + 1, placed_count, placements, n, m,
-                                  spiral_positions_t,
-                                  row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
-                                  row_suffix_counts, col_suffix_counts,
-                                  forced_values_by_index,
-                                  acc_after_place)
+            # Alignment lookahead csak akkor, ha a következő kényszer közel van
+            if alignment_window_ok?(idx + 1, placed_count, m, forced_values_t, forced_prefix_counts, next_forced_t) do
+              backtrack_over_spiral(idx + 1, placed_count, placements, n, m,
+                                    spiral_positions_t,
+                                    row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
+                                    row_suffix_counts, col_suffix_counts,
+                                    mask_for_value_t,
+                                    forced_values_t, forced_prefix_counts, next_forced_t,
+                                    acc_after_place)
+            else
+              acc_after_place
+            end
           else
             acc_after_place
           end
@@ -217,18 +238,16 @@ defmodule Nhf1 do
   end
 
   # Eldönti, hogy a v érték elhelyezhető-e a (row_idx0, col_idx0) cellába a sor/oszlop egyediség és kvóta alapján.
-  @spec can_place_value?(non_neg_integer(), non_neg_integer(), value(), tuple(), tuple(), tuple(), tuple(), cycle()) :: boolean()
-  defp can_place_value?(row_idx0, col_idx0, v, row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts, m) do
-    mask = 1 <<< (v - 1)
+  @spec can_place_value?(non_neg_integer(), non_neg_integer(), non_neg_integer(), tuple(), tuple(), tuple(), tuple(), cycle()) :: boolean()
+  defp can_place_value?(row_idx0, col_idx0, mask, row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts, m) do
     row_ok = (elem(row_value_masks, row_idx0) &&& mask) == 0 and elem(row_nonzero_counts, row_idx0) < m
     col_ok = (elem(col_value_masks_by_col, col_idx0) &&& mask) == 0 and elem(col_nonzero_counts, col_idx0) < m
     row_ok and col_ok
   end
 
   # Beállítja a v érték bitjét a megadott maszk-tuple adott indexében.
-  @spec mark_value_used(tuple(), non_neg_integer(), value()) :: tuple()
-  defp mark_value_used(bitset_tuple, idx, v) do
-    mask = 1 <<< (v - 1)
+  @spec mark_mask_used(tuple(), non_neg_integer(), non_neg_integer()) :: tuple()
+  defp mark_mask_used(bitset_tuple, idx, mask) do
     put_elem(bitset_tuple, idx, elem(bitset_tuple, idx) ||| mask)
   end
 
@@ -248,23 +267,7 @@ defmodule Nhf1 do
     end
   end
 
-  # Defenzív ellenőrzés: sor/oszlop kvóta m, és a spirál menti NEM-0 értékek 1..m ciklust alkotnak.
-  @spec valid_solution_board?(solution(), size(), cycle(), [field()]) :: boolean()
-  defp valid_solution_board?(board, n, m, spiral_positions) do
-    rows_ok = Enum.all?(board, fn row -> Enum.count(row, & &1 != 0) == m end)
-    cols_ok =
-      Enum.all?(0..(n-1), fn c ->
-        Enum.count(0..(n-1), fn r -> board |> Enum.at(r) |> Enum.at(c) |> Kernel.!=(0) end) == m
-      end)
-    if not (rows_ok and cols_ok), do: false, else: (
-      seq = for {r, c} <- spiral_positions, do: board |> Enum.at(r-1) |> Enum.at(c-1)
-      nz = Enum.filter(seq, &(&1 != 0))
-      if length(nz) != n * m, do: false, else: (
-        expected = Enum.map(0..(n*m - 1), fn i -> rem(i, m) + 1 end)
-        nz == expected
-      )
-    )
-  end
+  # (Korábbi defenzív validátor eltávolítva; a keresés konstrukciósan érvényes táblákat ad.)
 
   # Ellenőrzi, hogy a következő idx-től kezdődő suffix pozíciók elegendőek-e a vizsgált sor/oszlop kvótájának
   # teljesítéséhez a jelenlegi (módosított) számlálókkal.
@@ -283,6 +286,100 @@ defmodule Nhf1 do
     col_needed = m - elem(col_nonzero_counts, col_idx0)
 
     remaining_row_slots >= row_needed and remaining_col_slots >= col_needed
+  end
+
+  # Kényszerek tömbjeinek felépítése: érték-tuple, prefix kényszerszámok és a következő kényszer indexe.
+  @spec build_forced_arrays(map(), non_neg_integer()) :: {tuple(), tuple(), tuple()}
+  defp build_forced_arrays(forced_map, n2) do
+    # forced_values_t: hossz n2, 0 ha nincs kényszer, különben 1..m
+    forced_values_list = for i <- 0..(n2 - 1), do: Map.get(forced_map, i, 0)
+    forced_values_t = List.to_tuple(forced_values_list)
+    # prefix counts: hossz n2+1, pref[0]=0, pref[i+1]=pref[i]+(forced_values[i]!=0)
+    {pref_list, _} =
+      Enum.map_reduce(0..(n2 - 1), 0, fn i, acc ->
+        v = elem(forced_values_t, i)
+        new_acc = acc + if v == 0, do: 0, else: 1
+        {new_acc, new_acc}
+      end)
+    pref_full = [0 | pref_list]
+    forced_prefix_counts = List.to_tuple(pref_full)
+    # next_forced_t: a következő (>=i) kényszer indexe vagy -1
+    {next_list, _last} =
+      Enum.reduce(Enum.to_list(0..(n2 - 1)) |> Enum.reverse(), {[], -1}, fn i, {acc, last} ->
+        v = elem(forced_values_t, i)
+        new_last = if v == 0, do: last, else: i
+        {[new_last | acc], new_last}
+      end)
+    next_forced_t = List.to_tuple(next_list)
+    {forced_values_t, forced_prefix_counts, next_forced_t}
+  end
+
+  # Előszámolt maszkok táblája az 1..m értékekhez. Index 0 -> 0 maszk.
+  @spec build_mask_table(cycle()) :: tuple()
+  defp build_mask_table(m) do
+    masks = [0 | Enum.to_list(1..m) |> Enum.map(fn v -> 1 <<< (v - 1) end)]
+    List.to_tuple(masks)
+  end
+
+  # Igaz, ha a következő kényszer indexéig lehetséges olyan számú helyezés (min..max között),
+  # ami moduló m illeszkedik a szükséges fázisra.
+  @spec alignment_possible?(non_neg_integer(), non_neg_integer(), cycle(), tuple(), tuple(), tuple()) :: boolean()
+  defp alignment_possible?(idx, placed_count, m, forced_values_t, forced_prefix_counts, next_forced_t) do
+    n2 = tuple_size(next_forced_t)
+    if idx >= n2 do
+      true
+    else
+      fi = elem(next_forced_t, idx)
+      if fi == -1 do
+        true
+      else
+        v = elem(forced_values_t, fi)
+        # kötelező helyezések száma az [idx..fi] intervallumban
+        min_place = elem(forced_prefix_counts, fi + 1) - elem(forced_prefix_counts, idx)
+        max_place = fi - idx + 1
+        # t ≡ (v - placed_count) (mod m)
+        r0 = rem(v - placed_count, m)
+        r = if r0 < 0, do: r0 + m, else: r0
+        # legkisebb t >= min_place, t ≡ r (mod m)
+        first_t =
+          if r == 0 do
+            ceil_div(min_place, m) * m
+          else
+            if min_place <= r do
+              r
+            else
+              k = ceil_div(min_place - r, m)
+              r + k * m
+            end
+          end
+        first_t <= max_place
+      end
+    end
+  end
+
+  @spec ceil_div(non_neg_integer(), pos_integer()) :: non_neg_integer()
+  defp ceil_div(a, b) do
+    div(a + b - 1, b)
+  end
+
+  # Csak akkor futtatjuk az alignment ellenőrzést, ha a következő kényszer az ablakon belül van.
+  @spec alignment_window_ok?(non_neg_integer(), non_neg_integer(), cycle(), tuple(), tuple(), tuple()) :: boolean()
+  defp alignment_window_ok?(next_idx, placed_count, m, forced_values_t, forced_prefix_counts, next_forced_t) do
+    n2 = tuple_size(next_forced_t)
+    if next_idx >= n2 do
+      true
+    else
+      fi = elem(next_forced_t, next_idx)
+      if fi == -1 do
+        true
+      else
+        if fi - next_idx <= @alignment_window do
+          alignment_possible?(next_idx, placed_count, m, forced_values_t, forced_prefix_counts, next_forced_t)
+        else
+          true
+        end
+      end
+    end
   end
 
 end
