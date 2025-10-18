@@ -4,7 +4,7 @@ defmodule Nhf1 do
 
   @author "Toronyi Zsombor <toronyizsombor@edu.bme.hu> [S8F7DV]"
 
-  @date   "2025-10-24"
+  @date   "2025-10-18"
   """
 
   import Bitwise
@@ -151,7 +151,12 @@ defmodule Nhf1 do
                              row_suffix_counts, col_suffix_counts,
                              forced_values_by_index) do
     n2 = tuple_size(spiral_positions_t)
-    if idx == n2 do
+    # Globális kapacitás-pruning: a hátralévő pozíciók száma nem lehet kevesebb a még elhelyezendő nem-0 értékeknél
+    remaining_positions = n2 - idx
+    remaining_needed = n * m - placed_count
+    if remaining_positions < remaining_needed do
+      []
+    else if idx == n2 do
       # Alapeset: akkor és csak akkor megoldás, ha minden sor/oszlop m darab nem-0 értéket tartalmaz,
       # és globálisan is n*m darab értéket helyeztünk el.
       if placed_count == n * m and counts_reach_target?(row_nonzero_counts, m) and counts_reach_target?(col_nonzero_counts, m), do: [board_assignments], else: []
@@ -169,12 +174,17 @@ defmodule Nhf1 do
           new_col_value_masks_by_col = mark_value_used(col_value_masks_by_col, col_idx0, next_value)
           new_row_nonzero_counts = put_elem(row_nonzero_counts, row_idx0, elem(row_nonzero_counts, row_idx0) + 1)
           new_col_nonzero_counts = put_elem(col_nonzero_counts, col_idx0, elem(col_nonzero_counts, col_idx0) + 1)
-          new_assignments = Map.put(board_assignments, {r, c}, next_value)
-          backtrack_over_spiral(idx + 1, placed_count + 1, new_assignments, n, m,
-                                spiral_positions_t,
-                                new_row_value_masks, new_col_value_masks_by_col, new_row_nonzero_counts, new_col_nonzero_counts,
-                                row_suffix_counts, col_suffix_counts,
-                                forced_values_by_index)
+          # Lokális kapacitás-pruning: a hátralévő pozíciók azonos sorban/oszlopban elegendőek-e a kvótához
+          if capacity_ok_for_lines?(idx + 1, row_idx0, col_idx0, new_row_nonzero_counts, new_col_nonzero_counts, row_suffix_counts, col_suffix_counts, n, m) do
+            new_assignments = Map.put(board_assignments, {r, c}, next_value)
+            backtrack_over_spiral(idx + 1, placed_count + 1, new_assignments, n, m,
+                                  spiral_positions_t,
+                                  new_row_value_masks, new_col_value_masks_by_col, new_row_nonzero_counts, new_col_nonzero_counts,
+                                  row_suffix_counts, col_suffix_counts,
+                                  forced_values_by_index)
+          else
+            []
+          end
         else
           []
         end
@@ -182,17 +192,22 @@ defmodule Nhf1 do
       solutions_skip_branch =
         # Kihagyás (0) ága: csak akkor engedett, ha nincs kényszer érték ezen a pozíción.
         if forced_value == 0 do
-          backtrack_over_spiral(idx + 1, placed_count, board_assignments, n, m,
-                                spiral_positions_t,
-                                row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
-                                row_suffix_counts, col_suffix_counts,
-                                forced_values_by_index)
+          # Lokális kapacitás-pruning a sorra/oszlopra nézve, miután elhagytuk ezt a cellát
+          if capacity_ok_for_lines?(idx + 1, row_idx0, col_idx0, row_nonzero_counts, col_nonzero_counts, row_suffix_counts, col_suffix_counts, n, m) do
+            backtrack_over_spiral(idx + 1, placed_count, board_assignments, n, m,
+                                  spiral_positions_t,
+                                  row_value_masks, col_value_masks_by_col, row_nonzero_counts, col_nonzero_counts,
+                                  row_suffix_counts, col_suffix_counts,
+                                  forced_values_by_index)
+          else
+            []
+          end
         else
           []
         end
 
       solutions_place_branch ++ solutions_skip_branch
-    end
+    end end
   end
 
   # Eldönti, hogy a v érték elhelyezhető-e a (row_idx0, col_idx0) cellába a sor/oszlop egyediség és kvóta alapján.
@@ -245,6 +260,25 @@ defmodule Nhf1 do
     )
   end
 
+  # Ellenőrzi, hogy a következő idx-től kezdődő suffix pozíciók elegendőek-e a vizsgált sor/oszlop kvótájának
+  # teljesítéséhez a jelenlegi (módosított) számlálókkal.
+  @spec capacity_ok_for_lines?(non_neg_integer(), non_neg_integer(), non_neg_integer(), tuple(), tuple(), tuple(), tuple(), size(), cycle()) :: boolean()
+  defp capacity_ok_for_lines?(next_idx, row_idx0, col_idx0, row_nonzero_counts, col_nonzero_counts, row_suffix_counts, col_suffix_counts, _n, m) do
+    # A build_suffix_counts eredménye úgy rendezett, hogy index = (összes_pozíciók_száma - next_idx)
+    # adja a next_idx..vég tartomány kapacitását. Összes_pozíciók_száma = tuple_size - 1.
+    total_positions = tuple_size(row_suffix_counts) - 1
+    suffix_index = total_positions - next_idx
+    row_suffix = elem(row_suffix_counts, suffix_index)
+    col_suffix = elem(col_suffix_counts, suffix_index)
+    remaining_row_slots = elem(row_suffix, row_idx0)
+    remaining_col_slots = elem(col_suffix, col_idx0)
+
+    row_needed = m - elem(row_nonzero_counts, row_idx0)
+    col_needed = m - elem(col_nonzero_counts, col_idx0)
+
+    remaining_row_slots >= row_needed and remaining_col_slots >= col_needed
+  end
+
 end
 
 
@@ -263,8 +297,8 @@ defmodule Nhf1Kiadott do
       7 => {6, 3, [{{2, 4}, 3}, {{3, 3}, 1}, {{3, 6}, 2}, {{6, 1}, 3}], [[[0, 1, 2, 0, 3, 0], [2, 0, 0, 3, 0, 1], [0, 3, 1, 0, 0, 2], [0, 0, 3, 2, 1, 0], [1, 0, 0, 0, 2, 3], [3, 2, 0, 1, 0, 0]]]},
       8 => {7, 3, [{{1, 1}, 1}, {{2, 4}, 3}, {{3, 4}, 1}, {{4, 3}, 3}, {{6, 6}, 2}, {{7, 7}, 3}], [[[1, 0, 0, 2, 0, 3, 0], [0, 1, 2, 3, 0, 0, 0], [0, 3, 0, 1, 2, 0, 0], [0, 2, 3, 0, 0, 0, 1], [3, 0, 0, 0, 0, 1, 2], [0, 0, 1, 0, 3, 2, 0], [2, 0, 0, 0, 1, 0, 3]]]},
       9 => {8, 3, [{{1, 4}, 1}, {{1, 7}, 3}, {{2, 3}, 2}, {{2, 4}, 3}, {{3, 2}, 1}, {{4, 7}, 1}, {{7, 7}, 2}], [[[0, 0, 0, 1, 0, 2, 3, 0], [0, 0, 2, 3, 0, 0, 0, 1], [0, 1, 0, 0, 2, 3, 0, 0], [0, 3, 0, 0, 0, 0, 1, 2], [1, 2, 3, 0, 0, 0, 0, 0], [3, 0, 0, 2, 0, 1, 0, 0], [0, 0, 1, 0, 3, 0, 2, 0], [2, 0, 0, 0, 1, 0, 0, 3]], [[0, 0, 0, 1, 0, 2, 3, 0], [0, 0, 2, 3, 0, 0, 0, 1], [0, 1, 0, 0, 2, 3, 0, 0], [0, 3, 0, 0, 0, 0, 1, 2], [1, 2, 3, 0, 0, 0, 0, 0], [3, 0, 0, 2, 1, 0, 0, 0], [0, 0, 1, 0, 3, 0, 2, 0], [2, 0, 0, 0, 0, 1, 0, 3]], [[0, 0, 0, 1, 0, 2, 3, 0], [0, 0, 2, 3, 0, 0, 0, 1], [0, 1, 0, 2, 0, 3, 0, 0], [0, 3, 0, 0, 0, 0, 1, 2], [1, 2, 3, 0, 0, 0, 0, 0], [3, 0, 0, 0, 2, 1, 0, 0], [0, 0, 1, 0, 3, 0, 2, 0], [2, 0, 0, 0, 1, 0, 0, 3]], [[0, 0, 0, 1, 0, 2, 3, 0], [0, 0, 2, 3, 0, 0, 0, 1], [0, 1, 0, 2, 3, 0, 0, 0], [0, 3, 0, 0, 0, 0, 1, 2], [1, 2, 3, 0, 0, 0, 0, 0], [3, 0, 0, 0, 2, 1, 0, 0], [0, 0, 0, 0, 1, 3, 2, 0], [2, 0, 1, 0, 0, 0, 0, 3]], [[0, 0, 0, 1, 0, 2, 3, 0], [0, 0, 2, 3, 0, 0, 0, 1], [0, 1, 0, 2, 3, 0, 0, 0], [0, 3, 0, 0, 0, 0, 1, 2], [1, 2, 3, 0, 0, 0, 0, 0], [3, 0, 0, 0, 2, 1, 0, 0], [0, 0, 1, 0, 0, 3, 2, 0], [2, 0, 0, 0, 1, 0, 0, 3]]]},
-      #10 => {8, 4, [{{2, 3}, 4}, {{3, 3}, 2}, {{6, 1}, 1}, {{7, 6}, 3}], [[[0, 0, 1, 2, 3, 4, 0, 0], [0, 0, 4, 0, 1, 2, 3, 0], [0, 0, 2, 3, 0, 0, 4, 1], [3, 1, 0, 4, 0, 0, 0, 2], [2, 4, 0, 0, 0, 0, 1, 3], [1, 3, 0, 0, 0, 0, 2, 4], [0, 2, 0, 1, 4, 3, 0, 0], [4, 0, 3, 0, 2, 1, 0, 0]], [[0, 0, 1, 2, 3, 4, 0, 0], [0, 0, 4, 0, 1, 2, 3, 0], [3, 0, 2, 0, 0, 0, 4, 1], [0, 1, 3, 4, 0, 0, 0, 2], [2, 4, 0, 0, 0, 0, 1, 3], [1, 3, 0, 0, 0, 0, 2, 4], [0, 2, 0, 1, 4, 3, 0, 0], [4, 0, 0, 3, 2, 1, 0, 0]]]},
-      10 => {9, 3, [{{1, 7}, 3}, {{3, 1}, 1}, {{6, 1}, 3}, {{6, 2}, 2}, {{6, 6}, 1}, {{8, 4}, 3}, {{9, 2}, 1}], [[[0, 0, 0, 0, 1, 2, 3, 0, 0], [0, 0, 2, 0, 0, 0, 0, 3, 1], [1, 3, 0, 0, 0, 0, 0, 0, 2], [0, 0, 0, 1, 2, 3, 0, 0, 0], [0, 0, 0, 2, 3, 0, 1, 0, 0], [3, 2, 0, 0, 0, 1, 0, 0, 0], [0, 0, 3, 0, 0, 0, 2, 1, 0], [0, 0, 1, 3, 0, 0, 0, 2, 0], [2, 1, 0, 0, 0, 0, 0, 0, 3]]]}
+      10 => {8, 4, [{{2, 3}, 4}, {{3, 3}, 2}, {{6, 1}, 1}, {{7, 6}, 3}], [[[0, 0, 1, 2, 3, 4, 0, 0], [0, 0, 4, 0, 1, 2, 3, 0], [0, 0, 2, 3, 0, 0, 4, 1], [3, 1, 0, 4, 0, 0, 0, 2], [2, 4, 0, 0, 0, 0, 1, 3], [1, 3, 0, 0, 0, 0, 2, 4], [0, 2, 0, 1, 4, 3, 0, 0], [4, 0, 3, 0, 2, 1, 0, 0]], [[0, 0, 1, 2, 3, 4, 0, 0], [0, 0, 4, 0, 1, 2, 3, 0], [3, 0, 2, 0, 0, 0, 4, 1], [0, 1, 3, 4, 0, 0, 0, 2], [2, 4, 0, 0, 0, 0, 1, 3], [1, 3, 0, 0, 0, 0, 2, 4], [0, 2, 0, 1, 4, 3, 0, 0], [4, 0, 0, 3, 2, 1, 0, 0]]]},
+      11 => {9, 3, [{{1, 7}, 3}, {{3, 1}, 1}, {{6, 1}, 3}, {{6, 2}, 2}, {{6, 6}, 1}, {{8, 4}, 3}, {{9, 2}, 1}], [[[0, 0, 0, 0, 1, 2, 3, 0, 0], [0, 0, 2, 0, 0, 0, 0, 3, 1], [1, 3, 0, 0, 0, 0, 0, 0, 2], [0, 0, 0, 1, 2, 3, 0, 0, 0], [0, 0, 0, 2, 3, 0, 1, 0, 0], [3, 2, 0, 0, 0, 1, 0, 0, 0], [0, 0, 3, 0, 0, 0, 2, 1, 0], [0, 0, 1, 3, 0, 0, 0, 2, 0], [2, 1, 0, 0, 0, 0, 0, 0, 3]]]}
     }
   for i <- 0..map_size(testcases)-1
     do
