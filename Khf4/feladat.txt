@@ -1,0 +1,96 @@
+A számtekercs feladvány
+A kis házi feladat a nagy házi feladathoz kapcsolódik, ezért először ezt ismertetjük.
+
+Adott egy n*n mezőből álló, négyzet alakú tábla, amelynek egyes mezőiben 1 és m közötti számok vannak. A feladat az, hogy további 1 és m közötti számokat helyezzünk el a táblában úgy, hogy az alábbi feltételek teljesüljenek:
+Minden sorban és minden oszlopban az 1..m számok mindegyike pontosan egyszer szerepel.
+A bal felső sarokból induló tekeredő vonal mentén a számok rendre az 1,2,...m,1,2,...,m,... sorrendben követik egymást.
+A tekeredő vonalat a következőképpen definiáljuk. Először a négyzet első sorában haladunk balról jobbra, majd az utolsó oszlopban felülről lefelé. Ezután az utolsó sorban megyünk jobbról balra, majd az első oszlopban alulról fölfelé, egészen a 2. sor 1. mezőjéig. Miután így bejártuk a négyzetes tábla szélső sorait és oszlopait, rekurzívan folytatjuk a bejárást a 2. sor 2. mezőjében kezdődő (n-2)*(n-2) mezőből álló négyzettel.
+Az 1. ábra egy feladványt ábrázol, a 2. ábra ennek (egyetlen) megoldását mutatja.
+
+1. ábra. Egy feladvány (n=6, m=3):
+
+-----------------------\
+                  2     |
+/-------------------\   |
+|     1             |   |
+|   /-----------\   |   |
+|   |           |   |   |
+|   |   /---\   |   |   |
+|   |   |       |   | 1 |
+|   |   \-------/   |   |
+|   |               |   |
+|   \---------------/   |
+|                       |
+\-----------------------/
+           	
+2. ábra. A feladvány megoldása:
+
+-----------------------\
+  1   -   -   -   2   3 |
+/-------------------\   |
+| -   1   2   3   - | - |
+|   /-----------\   |   |
+| - | 3   1   2 | - | - |
+|   |   /---\   |   |   |
+| - | 2 | 3   - | - | 1 |
+|   |   \-------/   |   |
+| 3 | -   -   -   1 | 2 |
+|   \---------------/   |
+| 2   -   -   1   3   - |
+\-----------------------/
+           	
+A 4. kis házi feladat
+A 4. kis házi feladatban egy tekercsekk(M, Mx) predikátumot kell megírni:
+
+% tekercsekk(M, Mx): Mx egy listák listájaként ábrázolt, 0 és M
+% közötti egészekből álló mátrix, ahol a 0 érték jelöli az üres
+% pozíciókat.
+% Az eljárás akkor és csak akkor fut le sikeresen, ha Mx egy 
+% számtekercs feladvány helyes megoldását írja le.
+A pontos specifikációt lejjebb találja. Példák:
+
+| ?- tekercsekk(2, [[0,1,2],
+                    [2,0,1],
+                    [1,2,0]]).
+yes                            % helyes megoldás
+| ?- tekercsekk(2, [[1,2,0],
+                    [0,1,2],
+                    [2,0,1]]).
+no                             % A tekercsvonal nem helyes
+| ?- tekercsekk(2, [[1,0,2],
+                    [0,2,1],
+                    [1,0,2]]).
+no                             % Az oszlopok nem helyesek
+ | ?- tekercsekk(2, [[1,2,0],
+                     [0,0,1],
+                     [2,1,2]]).
+no                             % A 2-3. sor nem helyes
+ | ?- tekercsekk(2, [[0,2,1],
+                     [0,1,0],
+                     [2,1,2]]).
+no                             % Az 1-2. oszlop, a 2-3. sor, és a tekercs sem helyes
+A tekercsekk(M, Mx) eljárás specifikációja: Mx egy négyzetes mátrix (amelynek N sora és N oszlopa van), M pedig egy természetes szám, melyre teljesül, hogy N >= M. Az Mx mátrix minden eleme egy 0 és M közé eső természetes szám (ezek a feltételek minden tesztesetre garantáltan teljesülnek).
+
+Jelöljük Z-vel az N-M (nem negatív) különbséget. Az eljárás fusson le sikeresen, ha az alábbi két feltétel teljesül, egyébként hiúsuljon meg:
+
+Mx minden sorában és minden oszlopában a pozitív számok pontosan egyszer, a nullák pontosan Z-szer fordulnak elő.
+Ha az Mx mátrix elemeit a tekercsvonal sorrendjében soroljuk fel, majd elhagyjuk ebből a felsorolásból a 0 értékeket, akkor egy olyan számsorozatot kapunk, amely az 1,2,...,M sorozat N példányának összefűzésével áll elő.
+A megirandó eljárás paramétereinek típusát a következő – megjegyzésként megadott – Prolog-típusdefiníciók írják le.
+% :- type ciklus            == integer.
+% :- type matrix            == list(sor).
+% :- type sor               == list(integer).
+
+% :- pred tekercsekk(ciklus::in, matrix::in).
+További példák
+| ?- tekercsekk(2, [[0,0,1,2],[0,1,2,0],[2,0,0,0],[1,2,0,1]]).
+no
+| ?- tekercsekk(2, [[0,0,1,2],[0,2,1,0],[0,0,2,1],[1,0,0,2]]).
+no
+| ?- tekercsekk(2, [[1,0,2,0],[0,0,0,0],[0,2,1,1],[2,1,0,2]]).
+no
+| ?- tekercsekk(2, [[1,0,0,2],[2,0,1,0],[0,2,0,1],[0,1,2,0]]).
+yes
+| ?- tekercsekk(2, [[1,0,0,2],[0,1,2,0],[0,2,1,0],[2,0,0,1]]).
+yes
+| ?- tekercsekk(2, [[1,2,0,0],[2,1,0,0],[0,0,2,1],[0,0,1,2]]).
+yes

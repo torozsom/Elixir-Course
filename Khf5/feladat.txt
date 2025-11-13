@@ -1,0 +1,223 @@
+A számtekercs feladvány
+A kis házi feladat a nagy házi feladathoz kapcsolódik, ezért először ezt ismertetjük.
+
+Adott egy n*n mezőből álló, négyzet alakú tábla, amelynek egyes mezőiben 1 és m közötti számok vannak. A feladat az, hogy további 1 és m közötti számokat helyezzünk el a táblában úgy, hogy az alábbi feltételek teljesüljenek:
+Minden sorban és minden oszlopban az 1..m számok mindegyike pontosan egyszer szerepel.
+A bal felső sarokból induló tekeredő vonal mentén a számok rendre az 1,2,...m,1,2,...,m,... sorrendben követik egymást.
+A tekeredő vonalat a következőképpen definiáljuk. Először a négyzet első sorában haladunk balról jobbra, majd az utolsó oszlopban felülről lefelé. Ezután az utolsó sorban megyünk jobbról balra, majd az első oszlopban alulról fölfelé, egészen a 2. sor 1. mezőjéig. Miután így bejártuk a négyzetes tábla szélső sorait és oszlopait, rekurzívan folytatjuk a bejárást a 2. sor 2. mezőjében kezdődő (n-2)*(n-2) mezőből álló négyzettel.
+Az 1. ábra egy feladványt ábrázol, a 2. ábra ennek (egyetlen) megoldását mutatja.
+
+1. ábra. Egy feladvány (n=6, m=3):
+
+-----------------------\
+                  2     |
+/-------------------\   |
+|     1             |   |
+|   /-----------\   |   |
+|   |           |   |   |
+|   |   /---\   |   |   |
+|   |   |       |   | 1 |
+|   |   \-------/   |   |
+|   |               |   |
+|   \---------------/   |
+|                       |
+\-----------------------/
+           	
+2. ábra. A feladvány megoldása:
+
+-----------------------\
+  1   -   -   -   2   3 |
+/-------------------\   |
+| -   1   2   3   - | - |
+|   /-----------\   |   |
+| - | 3   1   2 | - | - |
+|   |   /---\   |   |   |
+| - | 2 | 3   - | - | 1 |
+|   |   \-------/   |   |
+| 3 | -   -   -   1 | 2 |
+|   \---------------/   |
+| 2   -   -   1   3   - |
+\-----------------------/
+
+A feladatban két Prolog predikátumot kell megírni:
+
+kezdotabla(FLeiro, Mx) – egy FLeiro feladvány-leíróból előállit egy a megoldás lehetséges értékeit felsoroló Mx mátrixot;
+ismert_szukites(FLeiro, Mx0, Mx) – az FLeiro feladvány-leíró által specifikált feladvány Mx0 megoldási állapotán elvégzi az összes olyan lehetséges szűkítést, amely már ismert értékeken alapul, ezzel előállitva az Mx új megoldási állapotot.
+A részletes leírást és a formális specifikációt lejjebb találja.
+A megirandó eljárások a nagy házi feladathoz kapcsolódnak, amelyben egy adott számtekercs-feladvány megoldását, egy nem-negatív egész számokból álló négyzetes mátrixot kell előállítani.
+
+A keresési feladatok megoldásának egy fontos módszere a korlát-programozás (Constraint Programming, CP), illetve ennek egy részterülete, a korlát-logikai programozás véges tartományokon (Constraint Logic Programming on Finite Domains, CLPFD). Ez utóbbi módszernek az az alapgondolata, hogy bizonyos megszorításokkal (kényszerekkel, korlátozásokkal, korlátokkal) definiált feladatok megoldása során a feladatban szereplő változók tartományát (azaz a lehetséges értékek halmazát) tartjuk nyilván, és ezeket a tartományokat a korlátozások alapján próbáljuk folyamatosan szűkíteni.
+
+A jelen félév Prolog házi feladataiban egy a számtekercs-feladványnak megfelelő méretű négyzetes mátrixot kell kezelni. Ennek a következő Prolog adatstruktúrát feleltetjük meg: a mátrixot sorok listájaként ábrázoljuk, ahol az egyes sorok a mátrix elemeiből álló listák. A mátrix minden egyes eleme egy tartományt határoz meg, amely a mátrix adott pozícióján megengedett értékek halmazának felel meg. Egy ilyen tartományt egy egészekből álló, szigorúan növekvő nem-üres listával ábrázolunk. Hatékonysági okokból (lásd később) az egyelemű listák esetében egy alternatív ábrázolást is bevezetünk: az [I] egyelemű tartományt az I egész számmal is jelölhetjük.
+
+Az 1. ábrán bemutatott feladványnak, ha eltekintünk a megadott értékektől, egy olyan 6x6-os Példa1 mátrix felel meg, amelynek mindegyik eleme a [0,1,2,3] lista:
+
+TT = [0,1,2,3],
+Példa1 = [[TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ]].
+(A TT változónév a Teljes Tartomány kifejezés rövidítése.)
+Ha az 1. ábrán szereplő feladványban a megadott három értéket is figyelembe vesszük, akkor az alábbi Példa2 mátrixot kapjuk:
+
+TT = [0,1,2,3],
+Példa2 = [[TT, TT, TT, TT, [2],TT ],
+          [TT, [1],TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, [1]],
+          [TT, TT, TT, TT, TT, TT ],
+          [TT, TT, TT, TT, TT, TT ]].
+A megirandó eljárások paramétereinek típusát a következő – megjegyzésként megadott – Prolog-típusdefiníciók írják le. A "t_" előtag arra utal, hogy (listaként ábrázolt) tartományokból álló mátrixról, sorról stb. van szó.
+
+% :- type feladvany_leiro ---> szt(meret, ciklus, list(adott_elem)).
+% :- type meret             == integer.
+% :- type ciklus            == integer.
+% :- type adott_elem      ---> i(sorszam, oszlopszam, ertek).
+% :- type sorszam           == integer.
+% :- type oszlopszam        == integer.
+% :- type ertek             == integer.
+
+% :- type t_matrix          == list(t_sor).
+% :- type t_sor             == list(t_ertek).
+% :- type t_ertek           == list(integer) \/ integer.  % egészek listája vagy egész
+
+% :- pred kezdotabla(feladvany_leiro::in, t_matrix::out).
+
+% :- pred ismert_szukites(feladvany_leiro::in, t_matrix::in, t_matrix::out).
+A feladvany_leiro adatstruktúra megegyezik a nagy házi feladat specifikációjában szereplő azonos nevű struktúrával.
+
+Az 5. kis házi feladatban megirandó első predikátum a kezdotabla(FLeiro, Mx) Prolog-eljárás, amely az első paraméterben megadott szt(n,m,L) feladvány-leíró alapján előállítja az annak megfelelő legáltalánosabb Mx tartomány-mátrixot. Az Mx mátrix j-edik sorának k-adik elemét az alábbiak szerint kell kitölteni:
+
+Ha az i(j,k,e) Prolog struktúra eleme az FLeiro listának        	Mxjk = [e]
+egyébként, ha n>m	Mxjk = [0,1,...,m]
+egyébként (amikor is n=m)	Mxjk = [1,...,m]
+
+Például a
+| ?- kezdotabla(szt(6,3,[]), Mx).
+hívás a Mx kimenő paraméternek a fenti Példa1 értéket adja, míg a
+| ?- kezdotabla(szt(6,3,[i(1,5,2),i(2,2,1),i(4,6,1)]), Mx).
+hívás az Mx = Példa2 behelyettesítést eredményezi.
+Az 5. kis házi feladatban megirandó második predikátum az ismert_szukites(FLeiro, Mx0, Mx) Prolog-eljárás. Az eljárás első, bemenő paramétere (FLeiro) egy feladvány-leíró, ebből a szt(n,m,...) struktúrából itt csak az első két argumentum bír jelentőséggel, a harmadik argumentumot ebben az eljárásban nem szabad figyelembe venni! Az ismert_szukites/3 eljárás második, bemenő paramétere (Mx0) egy n*n méretű négyzetes mátrix, amelynek minden eleme vagy egy egész szám, vagy egy szigorúan növekvő nem-üres egészlista, pl. a fenti Példa1. Az eljárás feladata, hogy – az alább specifikált módon – próbálja meg szűkíteni a mátrix elemeit, azaz próbáljon értékeket elhagyni a mátrixelemként előforduló listákból. Ha ez nem lehetséges, azaz nincs elhagyható érték, akkor az eljárás hiúsuljon meg. Ha a szűkítési folyamat során kiderül, hogy a feladatnak nincs megoldása, akkor ezt az Mx = [] behelyettesítéssel kell jelezni. Minden egyéb esetben az Mx kimenő paraméterben kell visszaadni az Mx0 szűkítésével előállított mátrixot.
+
+Az ismert_szukites/3 eljárásban akkor várunk el szűkítést, ha a mátrix egy eleméről kiderül, hogy az egy egyelemű lista. Ez két helyzetben fordulhat elő:
+
+egy olyan mezőről van szó, amely mezőn a feladványban eleve egy adott érték áll (pl. az 1. ábrán három ilyen érték található);
+egy korábbi szűkítési lépés eredményeként vált a mezőhöz rendelt tartomány egyeleművé.
+Tegyük fel, hogy a mátrix J-edik sorának K-adik oszlopában egy egyelemű [E] lista van. Ez esetben a következő szűkítéseket kell elvégezni:
+
+Ha E > 0, akkor az E értéket elhagyjuk a J-edik sor és a K-adik oszlop összes többi eleméből. Ha a sor vagy oszlop valamelyik eleme ezáltal üres listává vált (ami azt jelenti, hogy a feladatnak nincs megoldása), akkor azonnal kilépünk az eljárásból az Mx = [] behelyettesítéssel. Ezután a J-edik sor K-adik elemét [E]-ről E-re változtatjuk (ezt azért tesszük, hogy a továbbiakban feleslegesen ne próbáljuk ismételten elvégezni ezt a szűkítési lépést).
+Ha E = 0, akkor a J-edik sorban és a K-adik oszlopban minden [0] elemet 0-ra cserélünk. Ha ezután a J-edik sorban pontosan z = n-m darab 0 van, akkor a sor többi eleméből elhagyjuk a 0 értéket, ha viszont a 0-k száma nagyobb mint z, akkor azonnal kilépünk az Mx = [] behelyettesítéssel. Ugyanezt a folyamatot elvégezzük a K-adik oszlop esetén is.
+A fenti 1.-2. lépést mindaddig ismételjük, amíg a mátrixban találunk egyelemű tartományt.
+Fontos tudnivaló, hogy a feladat megoldásában pontosan a fent leírt szűkítéseket kell elvégezni. Szóba jöhetnének más szűkítési lehetőségek is, pl. ha egy sorban a tartományok listája [[0,1,2,3],[2,3],[0,2],0,[0,2,3],0], akkor az első elem [1]-re szűkíthető, hiszen ebben a sorban jelen kell lennie az 1 értéknek, máshol viszont nem fordulhat elő – de ezt a szűkítést itt most nem szabad elvégezni (ez a 6. kis házi tárgya lesz, többek között).
+Példák
+| ?- kezdotabla(szt(2,2,[]), Mx).
+Mx = [[[1,2],[1,2]],[[1,2],[1,2]]] ? ;
+no
+| ?- kezdotabla(szt(2,2,[i(2,1,1)]), Mx).
+Mx = [[[1,2],[1,2]],
+      [  [1],[1,2]]] ? ;
+no
+| ?- kezdotabla(szt(4,2,[i(1,1,2),i(2,4,1)]), Mx).
+Mx = [[[2],    [0,1,2],[0,1,2],[0,1,2]],
+      [[0,1,2],[0,1,2],[0,1,2],    [1]],
+      [[0,1,2],[0,1,2],[0,1,2],[0,1,2]],
+      [[0,1,2],[0,1,2],[0,1,2],[0,1,2]]] ? ;
+no
+| ?- kezdotabla(szt(6,3,[i(1,5,2),i(2,2,1),i(4,6,1)]), Mx).
+Mx = [[[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [2],[0,1,2,3]],
+      [[0,1,2,3],      [1],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+      [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+      [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [1]],
+      [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+      [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]]] ? ;
+no
+| ?- _FL = szt(2,2,[i(1,1,2)]), kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[[2],[1,2]],[[1,2],[1,2]]],
+Mx =  [[2,1],[1,2]] ? ;
+no
+| ?- _FL = szt(2,2,[i(1,1,2)]), kezdotabla(_FL, Mx0),
+     ismert_szukites(_FL, Mx0, Mx1), ismert_szukites(_FL, Mx1, Mx).
+no
+| ?- _FL =  szt(2,2,[i(1,1,1),i(2,2,2)]), kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[[1],[1,2]],[[1,2],[2]]],
+Mx =  [] ? ;
+no
+| ?-  _FL = szt(2,2,[i(1,1,0)]), kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[[0],[1,2]],[[1,2],[1,2]]],
+Mx =  [] ? ;
+no
+| ?- _FL =  szt(2,2,[]), kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+no
+| ?-  _FL = szt(3,2,[i(1,1,0)]), kezdotabla(_FL, Mx0), 
+     ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[    [0],[0,1,2],[0,1,2]],
+       [[0,1,2],[0,1,2],[0,1,2]],
+       [[0,1,2],[0,1,2],[0,1,2]]],
+Mx =  [[      0,  [1,2],  [1,2]],
+       [  [1,2],[0,1,2],[0,1,2]],
+       [  [1,2],[0,1,2],[0,1,2]]] ? ;
+no
+| ?-  _FL = szt(3,2,[i(1,3,0),i(3,1,0)]), kezdotabla(_FL, Mx0),
+     ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[[0,1,2],[0,1,2],    [0]],
+       [[0,1,2],[0,1,2],[0,1,2]],
+       [    [0],[0,1,2],[0,1,2]]],
+Mx =  [[  [1,2],  [1,2],      0],
+       [  [1,2],[0,1,2],  [1,2]],
+       [      0,  [1,2],  [1,2]]] ? ;
+no
+| ?- _FL=szt(4,2,[i(1,1,2),i(2,4,1),i(3,3,1)]), kezdotabla(_FL, Mx0), 
+     ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[    [2],[0,1,2],[0,1,2],[0,1,2]],
+       [[0,1,2],[0,1,2],[0,1,2],    [1]],
+       [[0,1,2],[0,1,2],    [1],[0,1,2]],
+       [[0,1,2],[0,1,2],[0,1,2],[0,1,2]]],
+Mx =  [[      2,      1,      0,      0],
+       [      0,  [0,2],  [0,2],      1],
+       [      0,  [0,2],      1,  [0,2]],
+       [      1,  [0,2],  [0,2],  [0,2]]] ? ;
+no
+| ?- _FL=szt(4,2,[i(1,1,2),i(2,4,1),i(3,3,1),i(4,4,2)]), 
+     kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[    [2],[0,1,2],[0,1,2],[0,1,2]],
+       [[0,1,2],[0,1,2],[0,1,2],    [1]],
+       [[0,1,2],[0,1,2],    [1],[0,1,2]],
+       [[0,1,2],[0,1,2],[0,1,2],    [2]]],
+Mx =  [[2,1,0,0],
+       [0,0,2,1],
+       [0,2,1,0],
+       [1,0,0,2]] ? ;
+no
+| ?- _FL = szt(6,3,[i(1,5,2),i(2,2,1),i(4,6,1)]),
+     kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [2],[0,1,2,3]],
+       [[0,1,2,3],      [1],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+       [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+       [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [1]],
+       [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+       [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3]]],
+Mx =  [[[0,1,3],      [0,3],  [0,1,3],  [0,1,3],        2,    [0,3]],
+       [[0,2,3],          1,  [0,2,3],  [0,2,3],    [0,3],  [0,2,3]],
+       [[0,1,2,3],  [0,2,3],[0,1,2,3],[0,1,2,3],  [0,1,3],  [0,2,3]],
+       [[0,2,3],    [0,2,3],  [0,2,3],  [0,2,3],    [0,3],        1],
+       [[0,1,2,3],  [0,2,3],[0,1,2,3],[0,1,2,3],  [0,1,3]   [0,2,3]],
+       [[0,1,2,3],  [0,2,3],[0,1,2,3],[0,1,2,3],  [0,1,3],  [0,2,3]]] ? ;
+no
+| ?- _FL = szt(6,3,[i(1,1,1),i(1,5,2),i(1,6,3),i(2,2,1),i(2,3,2),i(3,4,2),i(4,6,1),
+                    i(5,1,3),i(5,5,1),i(5,6,2),i(6,2,0),i(6,3,0),i(6,5,3)]),
+     kezdotabla(_FL, Mx0), ismert_szukites(_FL, Mx0, Mx).
+Mx0 = [[      [1],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [2],      [3]],
+       [[0,1,2,3],      [1],      [2],[0,1,2,3],[0,1,2,3],[0,1,2,3]],
+       [[0,1,2,3],[0,1,2,3],[0,1,2,3],      [2],[0,1,2,3],[0,1,2,3]],
+       [[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [1]],
+       [      [3],[0,1,2,3],[0,1,2,3],[0,1,2,3],      [1],      [2]],
+       [[0,1,2,3],      [0],      [0],[0,1,2,3],      [3],[0,1,2,3]]],
+Mx =  [[1,0,0,0,2,3],
+       [0,1,2,3,0,0],
+       [0,3,1,2,0,0],
+       [0,2,3,0,0,1],
+       [3,0,0,0,1,2],
+       [2,0,0,1,3,0]] ? ;
+no
